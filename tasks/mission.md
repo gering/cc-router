@@ -43,16 +43,15 @@ contract does.
       first. It must be data, not code, and it must survive updates.
 - [ ] **Ship the companion.** Source plus a build; decide whether a prebuilt
       binary or an image is published, and how a user pins it.
-- [ ] **Installation.** What creates the PATH entry and the `claude()` wrapper?
-      A plain script, a Homebrew tap, or a Claude Code plugin next to the
-      author's other ones.
+- [x] **Installation.** Decided: `git clone` plus `install.sh` symlinks; a
+      Homebrew tap once the core is a Go binary; a Claude Code plugin for the
+      Claude-Code-side pieces only. See [`architecture.md`](architecture.md).
 - [ ] **Server-side setup guide.** CLIProxyAPI, the reverse-proxy route, the
       block on `/v0/management*` and `/admin*`, and the outer auth layer —
       written for someone whose host is not a Synology.
-- [ ] **Decide the license.** The README currently says "not chosen yet".
-- [ ] **Decide the audience.** Personal machines only, or "give a friend
-      access"? The second raises provider terms-of-service questions that the
-      README must state honestly rather than bury.
+- [x] **Decide the license.** MIT.
+- [x] **Decide the audience.** Personal machines only. The README says so, and
+      says plainly that sharing a subscription violates provider terms.
 
 ## Deliberately out of scope
 
@@ -77,9 +76,11 @@ Each of these fixed a real, reproducible defect:
    render — an exact key set blanked the Codex bars once already.
 7. The statusline never waits on the network.
 
-## Open questions for the first session here
+## Open questions
 
-1. Repository layout: `bin/`, `lib/`, `companion/`, `docs/`, `tests/`?
-2. Does the Claude Code side ship as a plugin, or as a wrapper the user pastes
-   into their own shell config?
-3. How does a user onboard a second machine — documented steps, or a command?
+Layout, language, distribution and the plugin question are settled in
+[`architecture.md`](architecture.md). What remains:
+
+1. How does a user onboard a second machine — documented steps, or a command?
+2. Does the companion ship as a prebuilt binary, an image, or source only —
+   and how does a user pin it?
