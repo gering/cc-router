@@ -23,8 +23,10 @@ repository:
 | `.claude/knowledge/services/cliproxy-remote.md` | the pitfalls worth keeping |
 
 Test suites that must come along, because they encode the security contract:
-206 routing tests, 309 auth-CLI tests, 180 quota tests, plus the companion's Go
-suite with `-race`.
+206 routing tests, 309 auth-CLI tests and 180 quota tests, plus the companion's
+Go suite with `-race`. Re-count rather than trust these numbers — they were read
+off `gering/dotfiles` at `f0effff`, and the routing suite grows whenever the listing
+contract does.
 
 ## What has to change on the way out
 
