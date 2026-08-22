@@ -16,7 +16,9 @@ credentials, only a revocable per-machine key.
 
 > **Status: early.** The mechanism runs in production for its author, but it
 > lives in a private dotfiles repository. This repo exists to extract it into
-> something a second person can install. See [`tasks/mission.md`](tasks/mission.md).
+> something a second person can install. See [`tasks/mission.md`](tasks/mission.md)
+> for what still has to move and [`tasks/architecture.md`](tasks/architecture.md)
+> for how it is being built.
 
 ## Why
 
@@ -98,6 +100,21 @@ variables, never values.
 **Two output shapes.** A terminal gets a padded table; a pipe gets the raw TSV
 contract, so a consumer's fields never shift.
 
+## Scope and provider terms
+
+This is a client for **your own** provider accounts on **your own** host. It
+does not host anything for anyone, and it is not a way to share a subscription:
+every provider's terms tie a subscription to one person, so giving a friend a
+proxy key violates them. If you want a second person on your gateway, give them
+their own per-user API key with the provider — that is what the key layer is
+for.
+
+One session speaks to one provider. Within a provider you can switch models
+freely (`/model gpt-5.6-terra` in a `--sol` session), because the context
+ceiling and the tier defaults are shared. Across providers they are not, so
+switching provider means starting a session — the resume path exists to make
+that cost one command.
+
 ## Requirements
 
 - CLIProxyAPI on a host you control
@@ -108,4 +125,4 @@ contract, so a consumer's fields never shift.
 
 ## License
 
-Not chosen yet — see the mission file.
+[MIT](LICENSE)
