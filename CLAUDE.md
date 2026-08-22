@@ -18,6 +18,22 @@ extract it. Therefore:
 - Test counts quoted in `tasks/mission.md` were read off dotfiles at `f0effff`.
   Re-count; never cite them as current.
 
+## External coordination
+
+- **`~/dotfiles` is live upstream.** Router development continues there while
+  extraction runs. Before every migration step, read the current dotfiles HEAD
+  (`git -C ~/dotfiles log -- .scripts/cc-harness-agents .scripts/cliproxy-auth
+  .claude/cliproxy-quota-source.sh services/cliproxy-companion`) — never work
+  from notes or an earlier snapshot. Model names drift too (grok-4.6 already
+  replaced 4.5 there).
+- **work-system consumes `cc-harness-agents` via PATH.** The plugin-side
+  contract is `plugins/work-system/docs/cc-harness-agents.md` in
+  `~/Projekte/Plugins/claude-plugins`: `list` prints exactly four TSV columns
+  (name, model, available, note); `exec <id> -- claude …` launches routed.
+  Relocating the binary is explicitly supported, but the listing and exec
+  interfaces are external contracts — cover them in tests, change them only in
+  step with work-system.
+
 ## What cc-router is
 
 A client that makes the Claude Code harness talk to foreign models (Grok, Kimi,
