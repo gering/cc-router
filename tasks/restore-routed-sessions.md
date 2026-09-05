@@ -16,13 +16,18 @@ The current implementation uses an interactive zsh function. That function owns
 flag parsing and delegates foreign-model routing to `cc-harness-agents`, but it is
 not involved when another process launches the executable directly.
 
-herdr persists the Claude session ID and restores a pane with an invocation like:
+**Correction (2026-09-05, ROUTER-COORDINATION-20260905-A):** an earlier revision
+of this spec claimed herdr's automatic restore bypasses that shell function. That
+is wrong for the verified herdr implementation (v0.8.2 sources,
+`src/app/agent_resume.rs`; 0.8.0 is currently installed and the update is
+pending): herdr starts a pane **shell** and sends
+`shell_command_from_argv(plan.argv)` — `claude --resume <uuid>` — into it, so a
+fresh interactive zsh loads the current wrapper. The shim remains valuable for
+callers that `exec` the binary directly or do not source that function
+(non-interactive contexts, other shells, process managers), but its necessity
+must not be argued from the herdr claim.
 
-```sh
-claude --resume 45ac6aba-bef2-4d27-b0bf-2e85c9fba620
-```
-
-In that path:
+For a caller that does launch the executable directly:
 
 - the zsh function is bypassed;
 - Claude Code can restore the model recorded in the session transcript;
@@ -36,6 +41,15 @@ In that path:
 Some herdr panes also contain `launch_argv`, but that describes the original
 launch rather than the last active model, is not consistently present, and is
 not used by herdr's automatic Claude restore path.
+
+**Interim bridge:** dotfiles PR #24 (`.scripts/cc-harness-resume` + wrapper
+integration) restores the last real assistant model from the session's JSONL,
+ignores synthetic/sidechain messages, pins `-c` to its selected UUID and
+reapplies the routing recipe. Known limitations there: historical local/remote
+route, custom tiers, context overrides, effort and an unserved `/model` choice
+are not reconstructed. This spec's durable sidecar + shim design is what
+eventually replaces that bridge; the bridge is transcript-parsing by necessity,
+not the long-term mechanism.
 
 ## Design
 
@@ -110,8 +124,14 @@ Resolution order for existing sessions that predate `CC_ROUTER_PROFILE`:
 3. otherwise accept a unique matching tier/provider recipe;
 4. use a documented canonical profile only when all matching recipes are
    equivalent;
-5. refuse automatic foreign routing when matches are ambiguous and materially
-   different.
+5. when matches are ambiguous and materially different, or the model is unknown,
+   launch the **Anthropic default with a concise notice** naming what could not
+   be mapped. Never guess foreign routing — but do not fail closed either:
+   Robert explicitly accepts the Anthropic fallback for the resume-mapping case
+   (2026-09-05). This does not authorize insecure TLS, automatic remote/local
+   failover, or hiding the failure of a *positively selected* proxy route —
+   an explicit `--grok`/`--sol`/`--local` that cannot be honored is still an
+   error, not a fallback.
 
 ### Explicit `--resume`
 
@@ -124,7 +144,8 @@ For `claude --resume <session-id>`:
   launcher with the cached exact model as an explicit `--model <model-id>`;
 - the routing helper still supplies the proxy URL, authentication, headers,
   provider cleanup, tier defaults, subagent model and context ceiling;
-- missing, stale or invalid cache data must not result in guessed routing.
+- missing, stale or invalid cache data must not result in guessed routing — the
+  session launches on the Anthropic default with a concise notice instead.
 
 ### `-c` / `--continue`
 
@@ -176,14 +197,18 @@ last-one-wins behavior.
       active model.
 - [ ] A routed session switched with `/model` resumes on the switched model, not
       the profile's original primary model.
-- [ ] A direct herdr restore through `claude --resume <uuid>` takes the executable
-      shim path and succeeds without a shell function.
+- [ ] A restore invoked by directly executing `claude --resume <uuid>` (no shell
+      function sourced — the shim path) succeeds. herdr itself reaches the
+      wrapper through a fresh pane shell on the verified 0.8.2 implementation;
+      a herdr restore must succeed on that path too, but it does not prove the
+      shim.
 - [ ] `claude -c` restores the same session, profile, route and model for an exact
       working directory.
 - [ ] Two worktrees of the same repository cannot cross-select each other's
       routing state.
 - [ ] Explicit model/profile arguments override cached state.
-- [ ] Missing or ambiguous sidecars do not trigger guessed foreign routing.
+- [ ] Missing or ambiguous sidecars do not trigger guessed foreign routing —
+      they launch the Anthropic default with a concise notice.
 - [ ] A cached `--local` route cannot bypass the existing local readiness gate.
 - [ ] Native `claude`, `claude --resume`, and `claude -c` behavior remains
       unchanged when no routed state exists.
@@ -210,9 +235,11 @@ Cover at least:
 | `claude -c` | one exact-CWD entry | Rewritten to matching explicit resume |
 | `claude -c` | ambiguous exact-CWD entries | Safe passthrough with diagnostic |
 | `claude -c` | only parent-directory entry | No match |
-| herdr direct executable launch | routed sidecar | Routing restored without zsh function |
-| malformed or wrong-mode sidecar | any | Ignored safely |
-| unknown model/profile | any | Actionable failure, no credential disclosure |
+| direct executable launch, no shell function sourced | routed sidecar | Routing restored via the shim |
+| herdr pane restore (fresh shell, 0.8.2 path) | routed sidecar | Wrapper loads; same restore result |
+| malformed or wrong-mode sidecar | any | Ignored safely; Anthropic default + notice |
+| unknown model/profile in resume mapping | any | Anthropic default + concise notice, no credential disclosure |
+| unknown model/profile as explicit selector | any | Actionable failure, no credential disclosure |
 
 Tests must use fake launchers and helpers and assert argv and environment variable
 names without recording secret values.
@@ -222,9 +249,11 @@ names without recording secret values.
 Source behavior currently lives in the private dotfiles repository:
 
 - `.scripts/cc-harness-agents`
-- `.zshrc` `claude()`
+- `.scripts/cc-harness-resume` (interim resume bridge, dotfiles PR #24)
+- `.zsh/functions/claude.zsh` `claude()` (moved out of `.zshrc`)
 - `.claude/statusline.sh`
 - `scripts/test-cc-harness-agents.sh`
+- `scripts/test-cc-harness-resume.py` (offline resume regression tests)
 
 Extract the generic implementation here first. Keep the dotfiles integration as a
 small installer/configuration consumer rather than maintaining a second routing
