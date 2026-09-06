@@ -19,8 +19,8 @@ not involved when another process launches the executable directly.
 **Correction (2026-09-05, ROUTER-COORDINATION-20260905-A):** an earlier revision
 of this spec claimed herdr's automatic restore bypasses that shell function. That
 is wrong for the verified herdr implementation (v0.8.2 sources,
-`src/app/agent_resume.rs`; 0.8.0 is currently installed and the update is
-pending): herdr starts a pane **shell** and sends
+`src/app/agent_resume.rs`; 0.8.2 deployed everywhere since 2026-09-06): herdr
+starts a pane **shell** and sends
 `shell_command_from_argv(plan.argv)` — `claude --resume <uuid>` — into it, so a
 fresh interactive zsh loads the current wrapper. The shim remains valuable for
 callers that `exec` the binary directly or do not source that function
@@ -43,7 +43,7 @@ launch rather than the last active model, is not consistently present, and is
 not used by herdr's automatic Claude restore path.
 
 **Interim bridge:** dotfiles PR #24 (`.scripts/cc-harness-resume` + wrapper
-integration) restores the last real assistant model from the session's JSONL,
+integration, merged 2026-09-05 and live-tested) restores the last real assistant model from the session's JSONL,
 ignores synthetic/sidechain messages, pins `-c` to its selected UUID and
 reapplies the routing recipe. Known limitations there: historical local/remote
 route, custom tiers, context overrides, effort and an unserved `/model` choice
