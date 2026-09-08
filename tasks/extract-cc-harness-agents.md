@@ -60,11 +60,12 @@ architecture doc was written).
 
 ## Notes
 
-- **Sequencing (updated 2026-09-06, ROUTER-RESUME-DONE-20260906-A):** dotfiles
-  PR #24 (interim resume fix) merged 2026-09-05 (`a57fdca`), live-tested. The
-  remaining gate is the `--astra` profile merge in dotfiles — it changes
-  `.scripts/cc-harness-agents` too. Start only after that, and re-read HEAD;
-  an extraction from an earlier snapshot would overwrite both at cutover.
+- **Sequencing (gate released 2026-09-08):** both upstream gates are merged —
+  dotfiles PR #24 (interim resume fix, `a57fdca`, live-tested) and PR #26
+  (`--astra` row + selector, `97cb8b4`). Extraction may start; read dotfiles
+  HEAD at extraction time, never an earlier snapshot. Note from #26: the
+  272000 context figure in enable-astra-profile.md was wrong — the merged
+  table row documents the verified value; trust the row, not the brief.
 - Source drift since this task was written: the wrapper now lives at
   `.zsh/functions/claude.zsh` (not `.zshrc`), and `.scripts/cc-harness-resume`
   (interim resume bridge) plus `scripts/test-cc-harness-resume.py` exist as
