@@ -59,8 +59,24 @@ the cutover. Its acceptance criteria, agreed across both sides:
   known-predecessor assumption" is Robert's explicit policy for Grok; the GPT
   families get their own documented selection policy in this task — no silent
   guarantee carried over.
-- **Resume stability**: exact-model resume and explicit pins always beat
-  auto-latest; a resumed session is never silently upgraded.
+- **Resume stability**: exact-model resume (`CC_HARNESS_MODEL_<AGENT>`) and
+  explicit pins always beat auto-latest; a resumed session is never silently
+  upgraded. Explicit tier flags still discover.
+- **One resolver** feeds `list` and `exec`, so `list` shows exactly what `exec`
+  exports; every rung is availability-checked.
+- **One session-wide ceiling** = the smallest window of any reachable rung
+  (`CLAUDE_CODE_MAX_CONTEXT_TOKENS` survives `/model`). Unknown GPT windows stay
+  conservative (200000) with a visible note; explicit lower limits win.
+- **Fable rung:** the table carries a `fable` column exported as
+  `ANTHROPIC_DEFAULT_FABLE_MODEL` (landed in dotfiles `codex-gpt6-routing`).
+
+These points mirror the "cc-router follow-up contract" the dotfiles side wrote
+into `.claude/knowledge/services/cc-harness-agents.md`; after the cutover this
+task is the single source and that section points here.
+
+Open for Robert: dotfiles says a vanished recorded model on resume "fails
+visibly"; the 2026-09-05 policy says unknown/missing resume mapping falls back
+to the Anthropic default with a notice. Which applies to a retired exact model?
 
 ## Current friction
 The routing helper embeds a profile table while the zsh wrapper separately lists
