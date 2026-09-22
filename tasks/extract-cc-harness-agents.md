@@ -129,3 +129,28 @@ architecture doc was written).
   it), and the untracked TASK.md duplication.
 - Next: Robert's review/merge; then ask the manager session (cc-router-48) for
   the cutover freeze window. No dotfiles swap before that.
+
+### Upstream drift: the Codex catalog moved (reported 2026-09-22 by cc-router-48)
+
+A Codex update rebuilt the catalog — sol/terra are GPT-6 now and
+`gpt-5.3-codex-spark` is gone — so the four Codex rows in `share/models.tsv`
+(sol, terra, luna, and astra's borrowed haiku rung) name models the gateway no
+longer offers. Live, those rows report unavailable, which is the fail-closed
+behaviour working as designed, not a defect to fix here.
+
+The split agreed with the manager:
+
+- **PR #4 keeps its current scope.** No GPT-6 rows are pulled in; the
+  equivalence baseline stays dotfiles `f429346`.
+- The dotfiles manager lands a **data-only hotfix** on those four rows
+  (primary = Fable level, opus = gpt-6-sol, sonnet = gpt-6-terra,
+  haiku = gpt-6-luna, ceilings freshly verified).
+- **After that hotfix merges** (hash arrives via cc-router-48 or the dotfiles
+  manager), pull the row delta into `share/models.tsv` and do the final HEAD
+  diff — that is the last sync before the freeze.
+- If Robert merges PR #4 first, that is fine: the models.tsv delta can be a
+  follow-up commit before the cutover, which waits for the freeze window
+  regardless.
+- The auto-latest generalisation for the GPT family is **not** this task: it
+  lands in the Go core after the cutover (`tasks/model-onboarding.md`, updated
+  via cc-router PR #5).
