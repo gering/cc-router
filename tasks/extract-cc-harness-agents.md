@@ -138,19 +138,28 @@ A Codex update rebuilt the catalog — sol/terra are GPT-6 now and
 longer offers. Live, those rows report unavailable, which is the fail-closed
 behaviour working as designed, not a defect to fix here.
 
+**Corrected 2026-09-22 (cc-router-48):** the dotfiles fix is NOT data-only.
+The proxy catalog lags the native Codex update — `gpt-6-astra` is offered,
+sol/terra/luna only as 5.6, spark is gone — so the rows cannot simply be
+pinned to GPT-6. The dotfiles side is running a broader interim fix (gateway
+catalog reconciliation, a spark replacement, current GPT-6 routing) that may
+change CODE in `.scripts/cc-harness-agents`, not only the table.
+
 The split agreed with the manager:
 
 - **PR #4 keeps its current scope.** No GPT-6 rows are pulled in; the
-  equivalence baseline stays dotfiles `f429346`.
-- The dotfiles manager lands a **data-only hotfix** on those four rows
-  (primary = Fable level, opus = gpt-6-sol, sonnet = gpt-6-terra,
-  haiku = gpt-6-luna, ceilings freshly verified).
-- **After that hotfix merges** (hash arrives via cc-router-48 or the dotfiles
-  manager), pull the row delta into `share/models.tsv` and do the final HEAD
-  diff — that is the last sync before the freeze.
+  equivalence baseline stays dotfiles `f429346`, frozen until the merge hash
+  arrives.
+- **After that fix merges** (hash arrives via cc-router-48 or the dotfiles
+  manager), port the delta and do the final HEAD diff — the last sync before
+  the freeze. Expect it to reach beyond `share/models.tsv`: behaviour changes
+  have to be ported into the Go core and evidenced in
+  `tests/migration-coverage.md`. The dotfiles PR marks which parts are data
+  and which are behaviour.
 - If Robert merges PR #4 first, that is fine: the models.tsv delta can be a
   follow-up commit before the cutover, which waits for the freeze window
   regardless.
-- The auto-latest generalisation for the GPT family is **not** this task: it
-  lands in the Go core after the cutover (`tasks/model-onboarding.md`, updated
-  via cc-router PR #5).
+- The auto-latest generalisation for the GPT family is **binding
+  post-cutover scope**, explicitly outside this port: cc-router PR #5, commit
+  `a7d3825` (`tasks/model-onboarding.md`). Do not pull it forward, however
+  tempting it looks while porting the interim fix.
