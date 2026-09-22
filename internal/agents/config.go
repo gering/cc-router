@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 )
 
@@ -53,8 +52,7 @@ var settings = map[string]setting{
 	keyLocalPort: {
 		def: func(string) string { return "8317" },
 		validate: func(v string) error {
-			n, err := strconv.Atoi(v)
-			if err != nil || !isDigits(v) || v[0] == '0' || n > 65535 {
+			if _, ok := boundedInt(v, 65535); !ok {
 				return errors.New("must be a port number between 1 and 65535")
 			}
 			return nil

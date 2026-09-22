@@ -47,7 +47,8 @@ so the boundary is who may run it. `list` prints one row per agent — raw TSV
 (`name model available note`, exactly four columns) to a pipe, a padded table
 to a terminal. `resolve-model` maps a recorded model id back to its agent with
 no network access. Exit codes: `1` unavailable, `2` usage or unknown agent,
-`3` not configured; after a successful `exec` the status is the target's.
+`3` not configured, `126` the target is not executable, `127` no such target;
+after a successful `exec` the status is the target's.
 
 These are external contracts: work-system discovers the helper on `PATH` and
 parses `list`; the resume bridge calls `resolve-model`.
@@ -187,9 +188,10 @@ that cost one command.
 ## Development
 
 `make check` is the one gate, locally and in CI (macOS + Linux): gofmt, `go
-vet`, staticcheck, shellcheck/shfmt, `go test -race` and `tests/run` — the
+vet`, staticcheck, shellcheck/shfmt, `go test -race`, `tests/run` — the
 contract suite carried over from the bash implementation, running against the
-built binary through a local HTTPS test gateway. `make fmt` formats.
+built binary through a local HTTPS test gateway — and finally `make build`, so
+the gate never passes on something that does not build. `make fmt` formats.
 [`tests/migration-coverage.md`](tests/migration-coverage.md) maps every
 upstream assertion to its place here.
 

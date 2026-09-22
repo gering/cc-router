@@ -86,6 +86,20 @@ func LoadTable(home, executable string) (*Table, error) {
 	return &Table{Rows: rows}, nil
 }
 
+// boundedInt parses a plain positive decimal with no leading zero and an
+// inclusive ceiling — the one rule both the table's context column and the
+// config's port value are held to.
+func boundedInt(v string, max int) (int, bool) {
+	if !isDigits(v) || v[0] == '0' {
+		return 0, false
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n > max {
+		return 0, false
+	}
+	return n, true
+}
+
 // maxFileBytes caps every file this helper reads. Tables, configs, markers,
 // keys and credentials are all kilobytes at most.
 const maxFileBytes = 1 << 20
@@ -155,8 +169,8 @@ func ParseTable(data []byte) ([]Row, error) {
 				return nil, at("invalid model id")
 			}
 		}
-		ctx, err := strconv.Atoi(f[5])
-		if err != nil || !isDigits(f[5]) || f[5][0] == '0' || ctx > maxContext {
+		ctx, ok := boundedInt(f[5], maxContext)
+		if !ok {
 			return nil, at("max_ctx must be an integer between 1 and %d", maxContext)
 		}
 		r.MaxCtx = ctx

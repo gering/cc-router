@@ -10,7 +10,7 @@ wrapper, statusline, `cliproxy-auth` and companion still live in the private
 `gering/dotfiles` repository and move later.
 
 - **`make check` is the gate** (gofmt/vet/staticcheck, shellcheck/shfmt,
-  `go test -race`, `tests/run`); `make build`, `make fmt`. The contract suite
+  `go test -race`, `tests/run`, then `make build`); `make fmt` formats. The contract suite
   in `tests/` came across from dotfiles — keep its assertions language-neutral
   and update `tests/migration-coverage.md` when it changes.
 - `tasks/architecture.md` holds the decisions: layout, language, distribution,

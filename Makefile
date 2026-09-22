@@ -19,7 +19,7 @@ build:
 check: lint test build
 
 lint:
-	@unformatted="$$(gofmt -l cmd internal tests)"; \
+	@unformatted="$$(gofmt -l cmd internal tests)" || exit 1; \
 	if [ -n "$$unformatted" ]; then echo "gofmt needed (run make fmt):"; echo "$$unformatted"; exit 1; fi
 	$(GO) vet ./...
 	$(TOOL) staticcheck ./...

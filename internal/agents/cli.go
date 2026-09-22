@@ -19,7 +19,7 @@ import (
 )
 
 const usageText = `usage: cc-harness-agents list [--local] [--header|--no-header]
-       cc-harness-agents exec [--local] <name> [--] <argv…>
+       cc-harness-agents exec [--local] <agent> [--] <command…>
        cc-harness-agents resolve-model <model-id>
 `
 
@@ -29,8 +29,9 @@ type App struct {
 	Stdout      io.Writer
 	Stderr      io.Writer
 	StdoutIsTTY bool
-	// Executable is the running binary; share/models.tsv is located next to
-	// its real (symlink-resolved) path.
+	// Executable is the running binary; share/models.tsv is located from its
+	// real (symlink-resolved) path as ../share/models.tsv — bin/ and share/
+	// are siblings, which is the layout install.sh and tests/run build.
 	Executable string
 	Now        func() time.Time
 	// RootCAs replaces the system trust store; nil in production.

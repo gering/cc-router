@@ -308,7 +308,7 @@ func (s *selector) Resolve(r Row) Selection {
 	variable := overrideVar(r.Name)
 	if override := s.env.Get(variable); override != "" {
 		switch {
-		case strings.ContainsAny(override, " \t\n\v\f\r") || hasControl(override):
+		case strings.ContainsAny(override, " \t\n\v\f\r") || hasControl(override) || !modelIDRe.MatchString(override):
 			// Exported, it would 404 the whole session as a nonsense model id.
 			sel.Note = fmt.Sprintf("%s is malformed — ignored, using %s", variable, r.Model)
 		case override == r.Model:

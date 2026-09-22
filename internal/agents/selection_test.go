@@ -69,9 +69,14 @@ func TestResolveOverrideAndLadder(t *testing.T) {
 		t.Fatalf("override = %+v", got)
 	}
 
-	malformed := (&selector{env: NewEnv([]string{"CC_HARNESS_MODEL_GROK=grok 4.6"}), cat: &Catalog{}}).Resolve(grok)
-	if malformed.Model != "grok-4.6" || !strings.Contains(malformed.Note, "is malformed") {
-		t.Fatalf("malformed override = %+v", malformed)
+	// An override is exported as a literal model id, so it is held to the same
+	// shape as every id the table carries: whitespace, control bytes, an id
+	// longer than the table would accept, or characters no model id uses.
+	for _, bad := range []string{"grok 4.6", "grok-4.6\x1b[2J", "grok-4.6$(id)", strings.Repeat("grok-4.6", 20)} {
+		malformed := (&selector{env: NewEnv([]string{"CC_HARNESS_MODEL_GROK=" + bad}), cat: &Catalog{}}).Resolve(grok)
+		if malformed.Model != "grok-4.6" || !strings.Contains(malformed.Note, "is malformed") {
+			t.Errorf("override %q = %+v", bad, malformed)
+		}
 	}
 }
 
