@@ -26,9 +26,25 @@ unavailable — correct behavior, stale data):
   gpt-5.6-luna as its haiku rung is the documented hazard (retiring 5.6 kills
   the row); the GPT-6 rung set must come from the same family once available.
 
-Interim state: the immediate catalog hotfix (data rows only) lands in the live
-dotfiles bash via the dotfiles manager; this task implements the durable
-auto-latest generalization in the Go core after the cutover.
+Interim state (revised same day): the proxy catalog lags the native Codex
+update — it serves `gpt-6-astra` but still only the 5.6 ids for sol/terra/luna,
+and spark is gone, so a pure data pin to GPT-6 is not currently possible. The
+dotfiles side therefore runs a broader interim fix (gateway catalog
+reconciliation, spark-rung replacement, current GPT-6 routing) — explicitly
+without building a parallel bash auto-latest architecture.
+
+**Binding commitment to the dotfiles side (2026-09-26):** the auto-latest
+generalization is owned here, in the Go core, as its own follow-up step after
+the cutover. Its acceptance criteria, agreed across both sides:
+
+- Selection draws only from the **actually served route catalog** — never from
+  announced/marketing ids; catalog presence is checked per route, per probe.
+- **Four-tier semantics per family** (fable/opus/sonnet/haiku rungs filled from
+  the same generation; no cross-generation borrowed rungs).
+- **Safe context windows**: verified per selected model or visibly unknown —
+  auto-selection must never inherit a window across models or generations.
+- **Resume stability**: exact-model resume and explicit pins always beat
+  auto-latest; a resumed session is never silently upgraded.
 
 ## Current friction
 The routing helper embeds a profile table while the zsh wrapper separately lists
