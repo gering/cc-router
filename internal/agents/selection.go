@@ -3,6 +3,7 @@ package agents
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -293,13 +294,7 @@ func (s *selector) candidates(pattern *regexp.Regexp) string {
 			c = append(c, id)
 		}
 	}
-	for i := range c {
-		for j := i + 1; j < len(c); j++ {
-			if versionNewer(c[j], c[i]) {
-				c[i], c[j] = c[j], c[i]
-			}
-		}
-	}
+	sort.SliceStable(c, func(i, j int) bool { return versionNewer(c[i], c[j]) })
 	if len(c) > candidateNoteMax {
 		return strings.Join(c[:candidateNoteMax], " ") + " …"
 	}

@@ -1,7 +1,6 @@
 package agents
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -185,14 +184,9 @@ var contextIDRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 // id only when it is a plain integer in range — anything else leaves that
 // model's window UNKNOWN rather than wrong, and never fails the catalog.
 func parseCatalog(body []byte) (*Catalog, error) {
-	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.UseNumber()
 	var top map[string]any
-	if err := dec.Decode(&top); err != nil {
+	if err := decodeSingle(body, &top); err != nil {
 		return nil, err
-	}
-	if _, err := dec.Token(); err != io.EOF {
-		return nil, errors.New("trailing data after the model list")
 	}
 	entries, ok := top["data"].([]any)
 	if !ok {

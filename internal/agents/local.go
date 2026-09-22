@@ -56,8 +56,8 @@ var markerStampRe = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-
 // window is open, so this gate runs BEFORE the token, gateway and OAuth
 // probes: a stale copy looks perfectly healthy to all three.
 func (l *localRoute) blocked(now time.Time) string {
-	info, err := os.Stat(l.marker)
-	if err != nil || !info.Mode().IsRegular() {
+	data, err := readRegularFile(l.marker)
+	if err != nil {
 		return "the local route is not prepared — " + l.hint
 	}
 	var m struct {
@@ -65,14 +65,11 @@ func (l *localRoute) blocked(now time.Time) string {
 		ExpiresAt any `json:"expires_at"`
 		Files     any `json:"files"`
 	}
-	data, err := os.ReadFile(l.marker)
-	if err == nil {
-		err = decodeSingle(data, &m)
-	}
+	err = decodeSingle(data, &m)
 	stamp, isString := m.ExpiresAt.(string)
 	_, filesOK := m.Files.([]any)
-	version, versionOK := m.Version.(float64)
-	if err != nil || !versionOK || version != 1 || !isString || !markerStampRe.MatchString(stamp) || !filesOK {
+	version, versionOK := m.Version.(json.Number)
+	if err != nil || !versionOK || version.String() != "1" || !isString || !markerStampRe.MatchString(stamp) || !filesOK {
 		return "the local fallback marker is unusable — " + l.hint
 	}
 	expires, err := time.Parse("2006-01-02T15:04:05Z", stamp)
@@ -82,10 +79,13 @@ func (l *localRoute) blocked(now time.Time) string {
 	return ""
 }
 
-// decodeSingle decodes exactly one JSON object; a non-object or trailing data
-// is an error.
+// decodeSingle decodes exactly one JSON value; trailing data is an error, so a
+// document with a second value appended is refused rather than half-read.
+// Numbers stay json.Number: this helper reads credential and catalog metadata
+// where float64 would round an id or an epoch.
 func decodeSingle(data []byte, v any) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
 	if err := dec.Decode(v); err != nil {
 		return err
 	}
@@ -99,7 +99,7 @@ func decodeSingle(data []byte, v any) error {
 // interrupted login leaves a 0-byte key, and whitespace is stripped from the
 // value itself so the check and the export see the same string.
 func (l *localRoute) token() string {
-	data, err := os.ReadFile(l.tokenFile())
+	data, err := readRegularFile(l.tokenFile())
 	if err != nil {
 		return ""
 	}
@@ -183,17 +183,12 @@ const (
 // cannot be read or parsed fails closed; an unrecognized expiry shape means
 // "no expiry known", not a broken file.
 func credVerdict(path string, now time.Time) verdict {
-	data, err := os.ReadFile(path)
+	data, err := readRegularFile(path)
 	if err != nil {
 		return verdictUnreadable
 	}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.UseNumber()
 	var v any
-	if err := dec.Decode(&v); err != nil {
-		return verdictUnreadable
-	}
-	if _, err := dec.Token(); err != io.EOF {
+	if err := decodeSingle(data, &v); err != nil {
 		return verdictUnreadable
 	}
 	obj, ok := v.(map[string]any)

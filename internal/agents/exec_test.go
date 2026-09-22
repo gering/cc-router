@@ -3,7 +3,6 @@ package agents
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -67,7 +66,17 @@ func TestLookPath(t *testing.T) {
 	if got, _ := lookPath("./x/y", ""); got != "./x/y" {
 		t.Fatal("a path with a slash is not taken as is")
 	}
-	if !strings.HasSuffix(exe, "tool") {
-		t.Fatal()
+	// A relative PATH entry must never decide which binary receives the
+	// routing credentials, even when it holds a matching executable.
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	defer os.Chdir(cwd)
+	for _, path := range []string{"", ".", ":" + string(filepath.Separator) + "nonexistent"} {
+		if got, err := lookPath("tool", path); err == nil {
+			t.Errorf("PATH %q resolved to %q — a relative entry was searched", path, got)
+		}
 	}
 }

@@ -42,10 +42,16 @@ func hasControl(s string) bool {
 }
 
 // oneLine flattens what would otherwise add rows or columns to the TSV
-// contract: a note can embed a credential FILENAME, and a tab in one would
-// shift every consumer's field offsets.
+// contract, or steer a terminal: a note can embed a credential FILENAME and a
+// diagnostic an argument, so every control byte — not just CR, LF and TAB —
+// becomes a space before either reaches stdout or stderr.
 func oneLine(s string) string {
-	return strings.NewReplacer("\n", " ", "\r", " ", "\t", " ").Replace(s)
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, s)
 }
 
 // isDigits reports a non-empty run of ASCII digits.

@@ -1309,7 +1309,7 @@ assert_not_contains "$ERR" 'pinned to kimi-k3' "pinning the primary stays quiet"
 # …and it must stay a NO-OP, not just a quiet one. The resume path exports
 # CC_HARNESS_MODEL_<AGENT>=<the row's own primary>, which used to collapse every
 # tier tracking the previous rung onto that primary: a resumed astra ran its
-# sonnet rung on gpt-6-astra where a fresh launch runs gpt-5.6-sol, silently and
+# haiku rung on gpt-6-astra where a fresh launch runs gpt-5.6-luna, silently and
 # at the primary's price. Assert the WHOLE ladder, not only the note.
 setup_case
 write_local_credentials

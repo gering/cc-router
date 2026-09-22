@@ -62,7 +62,7 @@ data, never sourced, and unknown or duplicate keys are errors.
 |---|---|---|
 | `CC_ROUTER_REMOTE_URL` | — (required for the remote route) | `https://` gateway base URL |
 | `CLIPROXY_PROFILE` | from `~/.config/cliproxy/client.env` | selects the secret variables below |
-| `CC_ROUTER_LOCAL_HOST` | `127.0.0.1` | loopback only (`127.0.0.1`, `::1`, `localhost`) |
+| `CC_ROUTER_LOCAL_HOST` | `127.0.0.1` | loopback literals only (`127.0.0.1`, `::1`) |
 | `CC_ROUTER_LOCAL_PORT` | `8317` | local CLIProxyAPI |
 | `CC_ROUTER_PROXY_DIR` | `~/.cli-proxy-api` | local token and provider credentials |
 | `CC_ROUTER_LOCAL_MARKER` | `~/.cache/cliproxy-auth/local-ready.json` | the local-fallback window marker |

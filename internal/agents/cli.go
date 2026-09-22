@@ -138,15 +138,16 @@ type listRow struct {
 // terminal; --header/--no-header force either shape. Exit 0 means the probe
 // ran, whatever each agent's availability.
 func (a *App) list(home string, args []string) error {
-	local, header := false, ""
+	// The table is the TTY default; either flag overrides it in its direction.
+	local, header := false, a.StdoutIsTTY
 	for _, arg := range args {
 		switch arg {
 		case "--local":
 			local = true
 		case "--header":
-			header = "yes"
+			header = true
 		case "--no-header":
-			header = "no"
+			header = false
 		default:
 			return usageError()
 		}
@@ -164,7 +165,7 @@ func (a *App) list(home string, args []string) error {
 	if err != nil {
 		return err
 	}
-	if header == "yes" || header == "" && a.StdoutIsTTY {
+	if header {
 		renderTable(a.Stdout, rows)
 	} else {
 		for _, r := range rows {

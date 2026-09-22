@@ -101,9 +101,12 @@ func TestResolveModel(t *testing.T) {
 			t.Errorf("%s -> %s %s %v, want %s %s", c.in, agent, model, err, c.agent, c.model)
 		}
 	}
-	for _, in := range []string{"gpt-9.9-unknown", "claude-opus-5"} {
+	// The family fallback is the only branch that echoes its input, and the
+	// result is a TSV field: an id that could not come from the table — a tab,
+	// a newline, a control byte — is refused rather than printed.
+	for _, in := range []string{"gpt-9.9-unknown", "claude-opus-5", "grok-4.6\tforged\trow", "grok-4.6\nforged", "grok-\x1b[2J", strings.Repeat("grok-4.6", 20)} {
 		if _, _, err := table.ResolveModel(in); err == nil {
-			t.Errorf("%s resolved", in)
+			t.Errorf("%q resolved", in)
 		}
 	}
 	// A tier shared by rows that route differently is refused, never picked.

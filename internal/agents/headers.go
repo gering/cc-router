@@ -25,11 +25,8 @@ func normalizeCustomHeaders(inherited string, access *accessPair) (string, error
 		if strings.Contains(normalized, "\r") {
 			return "", headerError("contains a bare carriage return")
 		}
-		lines := strings.Split(normalized, "\n")
-		// One trailing newline is tolerated, like a shell `read` loop.
-		if lines[len(lines)-1] == "" {
-			lines = lines[:len(lines)-1]
-		}
+		// splitLines tolerates one trailing newline, like a shell `read` loop.
+		lines := splitLines(normalized)
 		seen := map[string]bool{}
 		for _, line := range lines {
 			switch {

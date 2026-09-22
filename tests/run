@@ -6,11 +6,17 @@ set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 PKG=$(mktemp -d "${TMPDIR:-/tmp}/cc-router-tests.XXXXXX")
-trap 'rm -rf -- "$PKG"' EXIT INT TERM
+# INT/TERM only run the handler: without an explicit exit the script would
+# resume and run the remaining suites against the deleted tree.
+trap 'rm -rf -- "$PKG"' EXIT
+trap 'rm -rf -- "$PKG"; exit 130' INT
+trap 'rm -rf -- "$PKG"; exit 143' TERM
 mkdir -p "$PKG/bin"
 ln -s "$ROOT/share" "$PKG/share"
+# Same toolchain as the Makefile, which passes its GO through.
+GO=${GO:-go}
 for target in cmd/cc-harness-agents tests/testdriver tests/gateway; do
-  (cd "$ROOT" && go build -o "$PKG/bin/${target##*/}" "./$target")
+  (cd "$ROOT" && "$GO" build -o "$PKG/bin/${target##*/}" "./$target")
 done
 
 status=0

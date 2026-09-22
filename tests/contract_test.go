@@ -32,7 +32,11 @@ func TestMain(m *testing.M) {
 	}
 	pkg = dir
 	root, _ := filepath.Abs("..")
-	build := exec.Command("go", "build", "-o", filepath.Join(pkg, "bin", "cc-harness-agents"), "./cmd/cc-harness-agents")
+	goBin := os.Getenv("GO")
+	if goBin == "" {
+		goBin = "go"
+	}
+	build := exec.Command(goBin, "build", "-o", filepath.Join(pkg, "bin", "cc-harness-agents"), "./cmd/cc-harness-agents")
 	build.Dir, build.Stderr = root, os.Stderr
 	if err := build.Run(); err != nil {
 		panic(err)

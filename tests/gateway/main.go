@@ -88,12 +88,19 @@ func main() {
 	closed, err := testpki.ClosedPort()
 	check(err)
 
+	// The suite sources this file, so the CA path is shell-quoted: a TMPDIR
+	// with a space would otherwise split into two words under `set -u`.
 	env := fmt.Sprintf("GATEWAY_CA=%s\nGATEWAY_TRUSTED_PORT=%d\nGATEWAY_UNTRUSTED_PORT=%d\nGATEWAY_RESET_PORT=%d\nGATEWAY_LIVE_PORT=%d\nGATEWAY_CLOSED_PORT=%d\n",
-		caFile, serve(trusted), serve(untrusted), accepting(), accepting(), closed)
+		shellQuote(caFile), serve(trusted), serve(untrusted), accepting(), accepting(), closed)
 	tmp := filepath.Join(*root, "gateway.env.tmp")
 	check(os.WriteFile(tmp, []byte(env), 0o600))
 	check(os.Rename(tmp, filepath.Join(*root, "gateway.env")))
 	io.Copy(io.Discard, os.Stdin)
+}
+
+// shellQuote wraps a value in single quotes, the one form no shell expands.
+func shellQuote(v string) string {
+	return "'" + strings.ReplaceAll(v, "'", `'\''`) + "'"
 }
 
 func read(dir, name, def string) string {

@@ -28,8 +28,8 @@ lint:
 	$(TOOL) shfmt -d $(SHFMT) $(SH) $(BASH)
 
 test:
-	$(GO) test -race ./...
-	tests/run
+	GO="$(GO)" $(GO) test -race ./...
+	GO="$(GO)" tests/run
 
 fmt:
 	gofmt -w cmd internal tests

@@ -73,8 +73,9 @@ ones that bite during implementation:
 - **No automatic remote→local fallback.** Two proxies refreshing the same OAuth
   credentials produce `invalid_grant`. `--local` is explicit and gated.
 - **No plaintext HTTP, never `curl -k`.** TLS is what authenticates the gateway.
-- **Secrets never in argv, logs or error messages.** Headers go to `curl` on
-  stdin; diagnostics name variables, never values. Tests assert env var *names*.
+- **Secrets never in argv, logs or error messages.** Headers are built in
+  memory and set on the request, never passed to a subprocess; diagnostics name
+  variables, never values. Tests assert env var *names*.
 - **A new model is a table row, never a code path.** Provider, tiers and real
   context ceiling in one data line. A branch per model is the wrong shape.
 - **Fail closed and name the failing layer.** `403` Access, `401` proxy key,

@@ -106,3 +106,26 @@ architecture doc was written).
   For the author's setup the cutover needs `~/.config/cc-router/config.env`
   with `CC_ROUTER_REMOTE_URL` and `CC_ROUTER_LOCAL_PREPARE_HINT` (the old
   `--mars-stopped` wording).
+
+### Status 2026-09-22 (later)
+
+- PR #4 open (`task/extract-cc-harness-agents`, head `fc9d050`), CI green on
+  macOS + Linux. Test helpers renamed by role: `internal/testpki` (shared
+  PKI/listeners), `tests/gateway` (stand-in HTTPS gateway for the bash suite).
+- A local `/swarm:review` of the branch delta is running (workflow run
+  `wf_ae603794-6e8`, Claude lenses/merge/verify patched to Sonnet in the staged
+  copy under `.swarm-workflow.1rfsQE/` — delete that dir and
+  `$TMPDIR/swarm-review.oneXXt` after the report). Read-only: present findings,
+  fix only on request.
+- Swarm report triaged with Robert (27 findings, 1 refuted). Applied: PATH
+  lookup skips relative entries, diagnostics sanitised, `resolve-model` refuses
+  an id it cannot have produced, one capped `readRegularFile` and one
+  `decodeSingle` for every file/JSON read, loopback literals only for
+  `CC_ROUTER_LOCAL_HOST`, `tests/run` exits on INT/TERM and honours `GO`,
+  gateway.env shell-quoted, plus DRY/dead-code cleanups. Rejected with reason:
+  the marker and TCP-liveness "hardening" (cliproxy-auth's contract, unchanged
+  from bash), the credential symlink/expiry-boundary reports (parity, or an
+  attacker who already owns the proxy dir), `mkdir -p bin` (go build creates
+  it), and the untracked TASK.md duplication.
+- Next: Robert's review/merge; then ask the manager session (cc-router-48) for
+  the cutover freeze window. No dotfiles swap before that.

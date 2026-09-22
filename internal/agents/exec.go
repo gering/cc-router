@@ -103,7 +103,9 @@ func (a *App) exec(home string, args []string) error {
 	}
 	row, ok := inv.table.Find(want)
 	if !ok {
-		return fail(exitUsage, "unknown agent '%s' — see: %s list", strings.TrimPrefix(want, agentNamespace+":"), progName)
+		// oneLine: the name is argv, and a diagnostic must not carry control
+		// bytes into the caller's terminal or log.
+		return fail(exitUsage, "unknown agent '%s' — see: %s list", oneLine(strings.TrimPrefix(want, agentNamespace+":")), progName)
 	}
 	var rt routing
 	var eff Row
@@ -182,25 +184,28 @@ func (a *App) selectAndReport(row Row, cat *Catalog) Row {
 func (a *App) replace(argv []string, env *Env) error {
 	path, err := lookPath(argv[0], a.Env.Get("PATH"))
 	if err != nil {
-		return fail(exitNotFound, "%s: command not found", argv[0])
+		return fail(exitNotFound, "%s: command not found", oneLine(argv[0]))
 	}
 	err = a.Exec(path, argv, env.Entries())
 	if errors.Is(err, syscall.ENOENT) {
-		return fail(exitNotFound, "%s: command not found", argv[0])
+		return fail(exitNotFound, "%s: command not found", oneLine(argv[0]))
 	}
-	return fail(exitCannotExecute, "cannot execute %s: %v", argv[0], err)
+	return fail(exitCannotExecute, "cannot execute %s: %v", oneLine(argv[0]), err)
 }
 
-// lookPath mirrors a shell's command lookup: a name with a slash is used as
-// is; otherwise the first executable regular file on PATH (an empty entry is
-// the current directory).
+// lookPath mirrors a shell's command lookup with one deliberate difference: a
+// name with a slash is used as is; otherwise the first executable regular file
+// on PATH, but a relative entry — "" or "." — is SKIPPED, not searched. A
+// shell would run ./claude there, and this exec hands the target the routing
+// credentials, so the current directory must never decide which binary gets
+// them (what os/exec.LookPath reports as ErrDot).
 func lookPath(file, path string) (string, error) {
 	if strings.Contains(file, "/") {
 		return file, nil
 	}
 	for _, dir := range filepath.SplitList(path) {
-		if dir == "" {
-			dir = "."
+		if !filepath.IsAbs(dir) {
+			continue
 		}
 		candidate := dir + "/" + file
 		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {

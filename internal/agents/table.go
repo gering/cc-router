@@ -3,6 +3,7 @@ package agents
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -45,7 +46,6 @@ var (
 
 // Table is the effective agent table of one invocation.
 type Table struct {
-	Path string
 	Rows []Row
 }
 
@@ -83,20 +83,38 @@ func LoadTable(home, executable string) (*Table, error) {
 	if err != nil {
 		return nil, fail(exitCapability, "invalid model table %s %v", path, err)
 	}
-	return &Table{Path: path, Rows: rows}, nil
+	return &Table{Rows: rows}, nil
 }
 
-// readRegularFile refuses directories and devices, which os.ReadFile would
-// otherwise read (or block on).
+// maxFileBytes caps every file this helper reads. Tables, configs, markers,
+// keys and credentials are all kilobytes at most.
+const maxFileBytes = 1 << 20
+
+// readRegularFile is the one reader for the files this helper consumes. It
+// refuses directories, devices and FIFOs, which os.ReadFile would otherwise
+// read (or block on forever), and caps the size so a huge or growing file
+// cannot exhaust memory.
 func readRegularFile(path string) ([]byte, error) {
-	info, err := os.Stat(path)
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
 	if err != nil {
 		return nil, err
 	}
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%s is not a regular file", path)
 	}
-	return os.ReadFile(path)
+	data, err := io.ReadAll(io.LimitReader(f, maxFileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxFileBytes {
+		return nil, fmt.Errorf("%s is larger than %d bytes", path, maxFileBytes)
+	}
+	return data, nil
 }
 
 // ParseTable validates the whole table before any of it is used. Diagnostics
@@ -229,11 +247,16 @@ func (t *Table) ResolveModel(wanted string) (agent, model string, err error) {
 		if hit == "" {
 			hit, hitRoute = r.Name, route
 		} else if route != hitRoute {
-			return "", "", fail(exitUnavailable, "model %s is served by several profiles that route differently", original)
+			return "", "", fail(exitUnavailable, "model %s is served by several profiles that route differently", oneLine(original))
 		}
 	}
 	if hit != "" {
 		return hit, wanted, nil
+	}
+	// The family fallback is the only branch that echoes its INPUT rather than
+	// a table value, and the result is a TSV field cc-harness-resume parses.
+	if !modelIDRe.MatchString(wanted) {
+		return "", "", fail(exitUnavailable, "no routing profile for model %s", oneLine(original))
 	}
 	prefix, _, _ := strings.Cut(wanted, "-")
 	count := 0
@@ -246,5 +269,5 @@ func (t *Table) ResolveModel(wanted string) (agent, model string, err error) {
 	if count == 1 {
 		return hit, wanted, nil
 	}
-	return "", "", fail(exitUnavailable, "no routing profile for model %s", original)
+	return "", "", fail(exitUnavailable, "no routing profile for model %s", oneLine(original))
 }

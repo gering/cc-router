@@ -40,12 +40,14 @@ var settings = map[string]setting{
 	keyLocalHost: {
 		def: func(string) string { return "127.0.0.1" },
 		validate: func(v string) error {
-			// Loopback only: the local route sends its token in plaintext.
+			// Loopback LITERALS only: the local route sends its token in
+			// plaintext, and a resolvable name like "localhost" would send it
+			// wherever the host's name resolution points.
 			switch v {
-			case "127.0.0.1", "::1", "localhost":
+			case "127.0.0.1", "::1":
 				return nil
 			}
-			return errors.New("must be 127.0.0.1, ::1 or localhost")
+			return errors.New("must be 127.0.0.1 or ::1")
 		},
 	},
 	keyLocalPort: {
