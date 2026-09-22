@@ -9,8 +9,9 @@ mechanism lives in the private `gering/dotfiles` repository; this repo exists to
 extract it. Therefore:
 
 - **No build, lint or test commands exist yet.** Do not invent them. The target
-  is a single `make check` (`shellcheck -s sh` + `shfmt -d` + `tests/run` +
-  `go vet` + `go test -race`); the suites come across from dotfiles.
+  is a single `make check` (gofmt/vet/staticcheck + `go test -race` +
+  `tests/run` contract suites against the built binary + `shellcheck -s sh` /
+  `shfmt -d` for the remaining shell); the suites come across from dotfiles.
 - `tasks/architecture.md` holds the decisions: layout, language, distribution,
   quality gate, migration order. Read it before proposing structural changes.
   `tasks/mission.md` is the extraction checklist,
@@ -86,10 +87,12 @@ ones that bite during implementation:
 
 ## Extraction rules
 
-- **Phase 1 extracts bash unchanged.** The core targets Go long-term, ported
-  component by component against the same (language-neutral) test suite. So do
-  not refactor or restructure bash that phase 3 discards — depersonalise and
-  ship. Where shell stays, target POSIX `sh`, not bash: macOS has bash 3.2.
+- **The core is written in Go directly** (Robert's decision, 2026-09-22 — it
+  replaced the earlier "extract bash first, port later" plan). The dotfiles
+  bash stays live and untouched until the coordinated cutover; the
+  language-neutral test suites come across as the specification and must run
+  green against the Go binary. Where shell remains (shim, install), target
+  POSIX `sh`, not bash: macOS has bash 3.2.
 - Strip every personal constant on the way out — `llm.gering.dev`, `mars`,
   `/volume1/docker/...`, the `MACBOOK` profile, port `18321`. They become
   configuration with documented defaults.
