@@ -4,20 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-There is no implementation here yet — only `README.md` and `tasks/`. The working
-mechanism lives in the private `gering/dotfiles` repository; this repo exists to
-extract it. Therefore:
+The routing core `cc-harness-agents` is implemented here in Go
+(`cmd/cc-harness-agents`, `internal/agents`, table in `share/models.tsv`). The
+wrapper, statusline, `cliproxy-auth` and companion still live in the private
+`gering/dotfiles` repository and move later.
 
-- **No build, lint or test commands exist yet.** Do not invent them. The target
-  is a single `make check` (gofmt/vet/staticcheck + `go test -race` +
-  `tests/run` contract suites against the built binary + `shellcheck -s sh` /
-  `shfmt -d` for the remaining shell); the suites come across from dotfiles.
+- **`make check` is the gate** (gofmt/vet/staticcheck, shellcheck/shfmt,
+  `go test -race`, `tests/run`); `make build`, `make fmt`. The contract suite
+  in `tests/` came across from dotfiles — keep its assertions language-neutral
+  and update `tests/migration-coverage.md` when it changes.
 - `tasks/architecture.md` holds the decisions: layout, language, distribution,
   quality gate, migration order. Read it before proposing structural changes.
   `tasks/mission.md` is the extraction checklist,
   `tasks/restore-routed-sessions.md` the first feature spec.
-- Test counts quoted in `tasks/mission.md` were read off dotfiles at `f0effff`.
-  Re-count; never cite them as current.
+- Test counts for the not-yet-extracted suites in `tasks/mission.md` were read
+  off dotfiles at `f0effff`. Re-count; never cite them as current.
 
 ## External coordination
 

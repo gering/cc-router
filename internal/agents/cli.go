@@ -189,7 +189,7 @@ func (a *App) row(r Row, cat *Catalog, verdict func(Row) (bool, string)) listRow
 		name:      agentNamespace + ":" + r.Name,
 		model:     eff.Model,
 		available: available,
-		note:      oneLine(mergeNotes(oneLine(note), sel.Note)),
+		note:      oneLine(mergeNotes(note, sel.Note)),
 	}
 }
 

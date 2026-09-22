@@ -128,22 +128,24 @@ func overrideVar(agent string) string {
 	return "CC_HARNESS_MODEL_" + strings.ToUpper(strings.ReplaceAll(agent, "-", "_"))
 }
 
-// version splits the release after the last '-' into major and minor.
-func version(id string) (major, minor string) {
-	v := id[strings.LastIndex(id, "-")+1:]
-	major, minor, ok := strings.Cut(v, ".")
-	if !ok {
-		minor = "0"
-	}
-	return major, minor
+// release splits the version after the last '-' at its first '.'; dotted
+// reports whether there was one.
+func release(id string) (major, minor string, dotted bool) {
+	return strings.Cut(id[strings.LastIndex(id, "-")+1:], ".")
 }
 
 // versionNewer compares component-wise and numerically (grok-4.20 is newer
 // than grok-4.6). Anything that is not a short digit run refuses the
 // comparison, which callers read as "not newer".
 func versionNewer(a, b string) bool {
-	am, an := version(a)
-	bm, bn := version(b)
+	am, an, aDot := release(a)
+	bm, bn, bDot := release(b)
+	if !aDot {
+		an = "0"
+	}
+	if !bDot {
+		bn = "0"
+	}
 	var n [4]int
 	for i, s := range []string{am, an, bm, bn} {
 		if !isDigits(s) || len(s) > versionMaxDigits {
@@ -163,10 +165,9 @@ func isCandidate(pattern *regexp.Regexp, id string) bool {
 	if !pattern.MatchString(id) {
 		return false
 	}
-	v := id[strings.LastIndex(id, "-")+1:]
-	major, minor, _ := strings.Cut(v, ".")
-	if minor == "" && !strings.Contains(v, ".") {
-		minor = v
+	major, minor, dotted := release(id)
+	if !dotted {
+		minor = major
 	}
 	return len(major) <= versionMaxDigits && len(minor) <= versionMaxDigits
 }

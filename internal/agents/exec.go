@@ -182,13 +182,13 @@ func (a *App) selectAndReport(row Row, cat *Catalog) Row {
 func (a *App) replace(argv []string, env *Env) error {
 	path, err := lookPath(argv[0], a.Env.Get("PATH"))
 	if err != nil {
-		return fail(127, "%s: command not found", argv[0])
+		return fail(exitNotFound, "%s: command not found", argv[0])
 	}
 	err = a.Exec(path, argv, env.Entries())
 	if errors.Is(err, syscall.ENOENT) {
-		return fail(127, "%s: command not found", argv[0])
+		return fail(exitNotFound, "%s: command not found", argv[0])
 	}
-	return fail(126, "cannot execute %s: %v", argv[0], err)
+	return fail(exitCannotExecute, "cannot execute %s: %v", argv[0], err)
 }
 
 // lookPath mirrors a shell's command lookup: a name with a slash is used as

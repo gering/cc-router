@@ -12,6 +12,9 @@ const (
 	exitUnavailable = 1 // exec: agent not available; resolve-model: no profile
 	exitUsage       = 2 // usage error, or exec: unknown agent
 	exitCapability  = 3 // the selected route has no usable configuration
+	// A failed exec reports like a shell would.
+	exitCannotExecute = 126
+	exitNotFound      = 127
 )
 
 const progName = "cc-harness-agents"
