@@ -40,7 +40,7 @@ var (
 	// primary only. Tiers with an undocumented window (gpt-5.3-codex-spark,
 	// kimi-k2.7-code) are deliberately absent. Ordered: ties in the predecessor
 	// search resolve to the earlier entry.
-	verifiedContext = []modelContext{
+	verifiedContext = []verifiedWindow{
 		{"grok-4.3", 500000},
 		{"grok-4.5", 500000},
 		{"grok-4.6", 500000},
@@ -69,7 +69,7 @@ const (
 	catalogContextMax = maxContext
 )
 
-type modelContext struct {
+type verifiedWindow struct {
 	model string
 	ctx   int
 }

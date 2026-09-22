@@ -77,11 +77,11 @@ func LoadTable(home, executable string) (*Table, error) {
 	}
 	data, err := readRegularFile(path)
 	if err != nil {
-		return nil, fail(exitCapability, "model table not readable: %s", path)
+		return nil, fail(exitCapability, "model table not readable: %s", oneLine(path))
 	}
 	rows, err := ParseTable(data)
 	if err != nil {
-		return nil, fail(exitCapability, "invalid model table %s %v", path, err)
+		return nil, fail(exitCapability, "invalid model table %s: %v", oneLine(path), err)
 	}
 	return &Table{Rows: rows}, nil
 }

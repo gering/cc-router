@@ -187,7 +187,9 @@ that cost one command.
 - an HTTPS ingress with a valid certificate — TLS is what authenticates the
   gateway, and there is deliberately no plaintext fallback
 - Claude Code; Go to build `cc-harness-agents` (no runtime dependencies)
-- optional: Cloudflare Access, or another outer authentication layer
+- Cloudflare Access in front of the gateway: the remote route sends a service
+  token on every request and refuses to run without the two
+  `CLIPROXY_CF_ACCESS_<PROFILE>_*` variables
 
 ## Development
 
