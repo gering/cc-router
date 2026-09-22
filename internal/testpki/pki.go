@@ -1,7 +1,7 @@
-// Package testfixture provides the throwaway PKI and gateway fixtures the
+// Package testpki provides the throwaway PKI and loopback listeners the
 // tests share: a CA the code under test is told to trust, and one it is not.
 // Certificate verification is never disabled — tests prove it stays on.
-package testfixture
+package testpki
 
 import (
 	"crypto/ecdsa"

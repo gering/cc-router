@@ -9,23 +9,23 @@
 #
 # What changed is the harness, not the assertions: the bash helper shelled out
 # to curl/nc, which a PATH fake could intercept. The Go binary speaks HTTPS and
-# TCP itself, so a loopback fixture (tests/fixture) plays the gateway. The
+# TCP itself, so a loopback test gateway (tests/gateway) plays the server. The
 # upstream FAKE_CURL_*/FAKE_NC_* knobs are kept as the call-site vocabulary and
-# translated by run_capture into fixture state:
+# translated by run_capture into test-gateway state:
 #
-#   FAKE_CURL_BODY / FAKE_CURL_STATUS   the fixture's response for this case
+#   FAKE_CURL_BODY / FAKE_CURL_STATUS   the test gateway's response for this case
 #   FAKE_CURL_RC=7                      a gateway that drops the connection
 #   FAKE_CURL_RC=60                     a gateway with an untrusted certificate
 #   FAKE_NC_RC=1                        nothing listening on the local port
-#   curl_calls                          requests the fixture observed
+#   curl_calls                          requests the test gateway observed
 #
 # Remote-route runs use tests/testdriver — the same code, trusting only the
-# fixture CA (certificate verification stays on). Everything else runs the
+# test gateway CA (certificate verification stays on). Everything else runs the
 # production binary. The Go tests cover the production binary's remote path
 # (untrusted system store, transport failures) separately.
 #
 # Usage: tests/test-cc-harness-agents.sh <pkg-dir>
-#   <pkg-dir> holds bin/cc-harness-agents, bin/testdriver, bin/fixture and a
+#   <pkg-dir> holds bin/cc-harness-agents, bin/testdriver, bin/gateway and a
 #   share/ next to bin/ (tests/run builds it).
 
 set -euo pipefail
@@ -34,15 +34,15 @@ PKG="${1:?usage: $0 <pkg-dir>}"
 HELPER="$PKG/bin/cc-harness-agents"
 DRIVER="$PKG/bin/testdriver"
 TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/test-cc-harness-agents.XXXXXX")
-exec 9> >("$PKG/bin/fixture" -root "$TMP_ROOT")
+exec 9> >("$PKG/bin/gateway" -root "$TMP_ROOT")
 # Preserve the exit status: a suite that dies mid-way must never report success.
 trap 'status=$?; exec 9>&-; rm -rf -- "$TMP_ROOT"; exit "$status"' EXIT
 for _ in $(seq 100); do
-  [ -r "$TMP_ROOT/fixture.env" ] && break
+  [ -r "$TMP_ROOT/gateway.env" ] && break
   sleep 0.05
 done
 # shellcheck source=/dev/null
-. "$TMP_ROOT/fixture.env"
+. "$TMP_ROOT/gateway.env"
 
 PASS=0
 FAIL=0
@@ -108,30 +108,30 @@ assert_secret_safe() {
   assert_not_contains "$text" "access-client-secret" "$label (Access secret)"
 }
 
-# The case's gateway URL on the trusted fixture.
-remote_url() { printf 'https://127.0.0.1:%s/c/%s' "$FIXTURE_TRUSTED_PORT" "$CASE_ID"; }
+# The case's gateway URL on the trusted test gateway.
+remote_url() { printf 'https://127.0.0.1:%s/c/%s' "$GATEWAY_TRUSTED_PORT" "$CASE_ID"; }
 
-fixture_file() { printf '%s/fixture/%s' "$CASE_DIR" "$1"; }
+gateway_file() { printf '%s/gateway/%s' "$CASE_DIR" "$1"; }
 
 # respond <status|body|location> <value>: an empty value restores the default.
 respond() {
-  mkdir -p "$CASE_DIR/fixture"
-  if [ -n "$2" ]; then printf '%s' "$2" > "$(fixture_file "$1")"; else rm -f "$(fixture_file "$1")"; fi
+  mkdir -p "$CASE_DIR/gateway"
+  if [ -n "$2" ]; then printf '%s' "$2" > "$(gateway_file "$1")"; else rm -f "$(gateway_file "$1")"; fi
 }
 
-fixture_request() { cat "$(fixture_file request)" 2> /dev/null || true; }
+gateway_request() { cat "$(gateway_file request)" 2> /dev/null || true; }
 
 # Runs a command, capturing RC/OUT/ERR. For an `env …` invocation it first
-# translates the upstream FAKE_* knobs into fixture state, supplies the
+# translates the upstream FAKE_* knobs into test-gateway state, supplies the
 # gateway configuration, and picks the binary: remote-route runs need the
-# fixture CA, so they go to the test driver.
+# test gateway CA, so they go to the test driver.
 run_capture() {
   local out_file="$CASE_DIR/stdout" err_file="$CASE_DIR/stderr"
   local -a cmd=()
   if [ "$1" = env ]; then
     local url port
     url="$(remote_url)"
-    port="$FIXTURE_LIVE_PORT"
+    port="$GATEWAY_LIVE_PORT"
     cmd=(env)
     shift
     while [ "$#" -gt 0 ]; do
@@ -140,16 +140,16 @@ run_capture() {
         FAKE_CURL_COUNT_FILE=* | FAKE_CURL_LOG_FILE=* | FAKE_CURL_RC=0) ;;
         FAKE_CURL_BODY=*) respond body "${1#*=}" ;;
         FAKE_CURL_STATUS=*) respond status "${1#*=}" ;;
-        FAKE_CURL_RC=7) url="https://127.0.0.1:$FIXTURE_RESET_PORT/c/$CASE_ID" ;;
-        FAKE_CURL_RC=60) url="https://127.0.0.1:$FIXTURE_UNTRUSTED_PORT/c/$CASE_ID" ;;
-        FAKE_NC_RC=1) port="$FIXTURE_CLOSED_PORT" ;;
+        FAKE_CURL_RC=7) url="https://127.0.0.1:$GATEWAY_RESET_PORT/c/$CASE_ID" ;;
+        FAKE_CURL_RC=60) url="https://127.0.0.1:$GATEWAY_UNTRUSTED_PORT/c/$CASE_ID" ;;
+        FAKE_NC_RC=1) port="$GATEWAY_CLOSED_PORT" ;;
         CC_ROUTER_REMOTE_URL=*) url="${1#*=}" ;;
         *=*) cmd+=("$1") ;;
         *) break ;;
       esac
       shift
     done
-    cmd+=("CC_ROUTER_REMOTE_URL=$url" "CC_ROUTER_LOCAL_PORT=$port" "CC_ROUTER_TEST_CA_FILE=$FIXTURE_CA")
+    cmd+=("CC_ROUTER_REMOTE_URL=$url" "CC_ROUTER_LOCAL_PORT=$port" "CC_ROUTER_TEST_CA_FILE=$GATEWAY_CA")
     if [ "$1" = "$HELPER" ] && is_remote_run "${@:2}"; then
       set -- "$DRIVER" "${@:2}"
     fi
@@ -177,7 +177,7 @@ is_remote_run() {
 
 curl_calls() {
   local count
-  count="$(cat "$(fixture_file count)" 2> /dev/null || true)"
+  count="$(cat "$(gateway_file count)" 2> /dev/null || true)"
   printf '%s' "${count:-0}"
 }
 
@@ -369,12 +369,12 @@ run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" 
   "$HELPER" list
 assert_eq 0 "$RC" "the default captured listing succeeds"
 assert_not_contains "$(printf '%s\n' "$OUT" | sed -n 1p)" 'available' "the default captured listing starts with an agent row"
-# The fixture sees the request as sent. Header names arrive canonicalized by
-# the fixture's HTTP server (names are case-insensitive on the wire).
-assert_contains "$(fixture_request)" "GET /c/$CASE_ID/v1/models" "remote probe uses the configured gateway's models URL"
-assert_contains "$(fixture_request)" 'Authorization: Bearer remote-api-secret' "remote probe sends bearer authentication"
-assert_contains "$(fixture_request)" 'Cf-Access-Client-Id: access-id-secret' "remote probe sends the Access client ID"
-assert_contains "$(fixture_request)" 'Cf-Access-Client-Secret: access-client-secret' "remote probe sends the Access client secret"
+# The test gateway sees the request as sent. Header names arrive canonicalized by
+# the test gateway's HTTP server (names are case-insensitive on the wire).
+assert_contains "$(gateway_request)" "GET /c/$CASE_ID/v1/models" "remote probe uses the configured gateway's models URL"
+assert_contains "$(gateway_request)" 'Authorization: Bearer remote-api-secret' "remote probe sends bearer authentication"
+assert_contains "$(gateway_request)" 'Cf-Access-Client-Id: access-id-secret' "remote probe sends the Access client ID"
+assert_contains "$(gateway_request)" 'Cf-Access-Client-Secret: access-client-secret' "remote probe sends the Access client secret"
 assert_secret_safe "$ERR" "remote list stderr hides secrets"
 
 # An explicit profile override wins without reading or trusting client.env.
@@ -469,7 +469,7 @@ run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" 
   "$HELPER" exec --local sol -- "$TARGET"
 assert_eq 0 "$RC" "local exec succeeds"
 assert_eq 0 "$(curl_calls)" "local exec uses only the reachability probe"
-assert_contains "$OUT" "BASE=http://127.0.0.1:$FIXTURE_LIVE_PORT" "local exec exports the loopback gateway"
+assert_contains "$OUT" "BASE=http://127.0.0.1:$GATEWAY_LIVE_PORT" "local exec exports the loopback gateway"
 assert_contains "$OUT" 'AUTH=local-token' "local exec exports the local token"
 assert_contains "$OUT" 'ROUTE=local' "local exec identifies the route"
 assert_contains "$OUT" 'NO_PROXY=127.0.0.1,localhost,corp.example,lower.example' "loopback bypass is added only locally"
@@ -486,7 +486,7 @@ run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" 
   FAKE_NC_RC=1 FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" \
   "$HELPER" exec --local sol -- "$TARGET"
 assert_eq 1 "$RC" "local exec rejects an unreachable loopback gateway"
-assert_contains "$ERR" "nothing listening on 127.0.0.1:$FIXTURE_CLOSED_PORT" "local reachability error names the local gateway"
+assert_contains "$ERR" "nothing listening on 127.0.0.1:$GATEWAY_CLOSED_PORT" "local reachability error names the local gateway"
 assert_eq 0 "$(curl_calls)" "local reachability failure never invokes curl"
 
 # Local header normalization rejects the same unsafe non-CF input as remote.
@@ -1413,7 +1413,7 @@ assert_eq 1 "$RC" "a native model has no agent profile"
 # A redirect is reported, never followed: the target is not requested.
 setup_case
 write_remote_profile TEST
-respond location "https://127.0.0.1:$FIXTURE_TRUSTED_PORT/c/$CASE_ID.followed/v1/models"
+respond location "https://127.0.0.1:$GATEWAY_TRUSTED_PORT/c/$CASE_ID.followed/v1/models"
 run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
   FAKE_CURL_STATUS=302 \
   CLIPROXY_API_KEY_TEST=remote-api-secret \
@@ -1422,7 +1422,7 @@ run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" 
   "$HELPER" exec sol -- "$TARGET"
 assert_eq 1 "$RC" "a redirect fails the probe"
 assert_eq 1 "$(curl_calls)" "a redirect costs exactly one request"
-assert_eq "" "$(cat "$TMP_ROOT/$CASE_ID.followed/fixture/count" 2> /dev/null || true)" "the redirect target is never requested"
+assert_eq "" "$(cat "$TMP_ROOT/$CASE_ID.followed/gateway/count" 2> /dev/null || true)" "the redirect target is never requested"
 
 # The response body is capped at 1 MiB.
 setup_case
@@ -1440,7 +1440,7 @@ assert_contains "$ERR" 'exceeds 1048576 bytes' "the body cap is named"
 setup_case
 write_remote_profile TEST
 run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
-  CC_ROUTER_REMOTE_URL="http://127.0.0.1:$FIXTURE_TRUSTED_PORT/c/$CASE_ID" \
+  CC_ROUTER_REMOTE_URL="http://127.0.0.1:$GATEWAY_TRUSTED_PORT/c/$CASE_ID" \
   CLIPROXY_API_KEY_TEST=remote-api-secret \
   CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret \
   CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \

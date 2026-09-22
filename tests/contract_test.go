@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gering/cc-router/internal/testfixture"
+	"github.com/gering/cc-router/internal/testpki"
 )
 
 var pkg string // temp package layout: bin/cc-harness-agents + share -> ../share
@@ -98,13 +98,13 @@ func localHome(t *testing.T) (string, int) {
 	}
 	expires := time.Now().Add(time.Hour).UTC().Format("2006-01-02T15:04:05Z")
 	write(".cache/cliproxy-auth/local-ready.json", `{"version":1,"expires_at":"`+expires+`","files":[]}`)
-	l, err := testfixture.Loopback()
+	l, err := testpki.Loopback()
 	if err != nil {
 		t.Fatal(err)
 	}
-	go testfixture.AcceptAndClose(l)
+	go testpki.AcceptAndClose(l)
 	t.Cleanup(func() { l.Close() })
-	return home, testfixture.Port(l)
+	return home, testpki.Port(l)
 }
 
 func localEnv(home string, port int, extra ...string) []string {
@@ -226,7 +226,7 @@ func TestUserTableOverride(t *testing.T) {
 // config.env supplies settings; the environment overrides it.
 func TestConfigFile(t *testing.T) {
 	home, port := localHome(t)
-	closed, _ := testfixture.ClosedPort()
+	closed, _ := testpki.ClosedPort()
 	cfg := filepath.Join(home, ".config", "cc-router", "config.env")
 	os.MkdirAll(filepath.Dir(cfg), 0o700)
 	os.WriteFile(cfg, []byte(fmt.Sprintf("# local gateway\nCC_ROUTER_LOCAL_PORT=%d\nCC_ROUTER_LOCAL_PREPARE_HINT=run: my-prepare\n", port)), 0o600)
@@ -253,7 +253,7 @@ func TestConfigFile(t *testing.T) {
 // certificate chains to a private CA fails TLS before any request — the
 // secrets never reach it. Missing configuration is "capability absent".
 func TestProductionRemoteRoute(t *testing.T) {
-	ca, err := testfixture.NewCA("not in the system store")
+	ca, err := testpki.NewCA("not in the system store")
 	if err != nil {
 		t.Fatal(err)
 	}

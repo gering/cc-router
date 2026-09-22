@@ -1,6 +1,6 @@
 #!/bin/sh
 # Contract suites against freshly built binaries. Builds the production binary,
-# the test driver and the fixture gateway into a temporary package layout
+# the test driver and the test gateway into a temporary package layout
 # (bin/ next to a share/ link), then runs every suite and reports all failures.
 set -eu
 
@@ -9,7 +9,7 @@ PKG=$(mktemp -d "${TMPDIR:-/tmp}/cc-router-tests.XXXXXX")
 trap 'rm -rf -- "$PKG"' EXIT INT TERM
 mkdir -p "$PKG/bin"
 ln -s "$ROOT/share" "$PKG/share"
-for target in cmd/cc-harness-agents tests/testdriver tests/fixture; do
+for target in cmd/cc-harness-agents tests/testdriver tests/gateway; do
   (cd "$ROOT" && go build -o "$PKG/bin/${target##*/}" "./$target")
 done
 

@@ -189,7 +189,7 @@ that cost one command.
 `make check` is the one gate, locally and in CI (macOS + Linux): gofmt, `go
 vet`, staticcheck, shellcheck/shfmt, `go test -race` and `tests/run` — the
 contract suite carried over from the bash implementation, running against the
-built binary through a local HTTPS fixture gateway. `make fmt` formats.
+built binary through a local HTTPS test gateway. `make fmt` formats.
 [`tests/migration-coverage.md`](tests/migration-coverage.md) maps every
 upstream assertion to its place here.
 

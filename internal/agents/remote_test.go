@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gering/cc-router/internal/testfixture"
+	"github.com/gering/cc-router/internal/testpki"
 )
 
 // gateway is an HTTPS test server whose certificate chains to ca.
-func gateway(t *testing.T, ca *testfixture.CA, hosts []string, h http.HandlerFunc) *httptest.Server {
+func gateway(t *testing.T, ca *testpki.CA, hosts []string, h http.HandlerFunc) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewUnstartedServer(h)
 	cfg, err := ca.ServerConfig(hosts...)
@@ -26,16 +26,16 @@ func gateway(t *testing.T, ca *testfixture.CA, hosts []string, h http.HandlerFun
 	return srv
 }
 
-func newCA(t *testing.T) *testfixture.CA {
+func newCA(t *testing.T) *testpki.CA {
 	t.Helper()
-	ca, err := testfixture.NewCA("test CA")
+	ca, err := testpki.NewCA("test CA")
 	if err != nil {
 		t.Fatal(err)
 	}
 	return ca
 }
 
-func testProber(ca *testfixture.CA, env ...string) *prober {
+func testProber(ca *testpki.CA, env ...string) *prober {
 	return &prober{env: NewEnv(env), rootCAs: ca.Pool(), connectTimeout: time.Second, totalTimeout: 2 * time.Second}
 }
 
@@ -145,16 +145,16 @@ func TestProbeTransportFailures(t *testing.T) {
 	}
 
 	// A peer that drops the connection, and one that never answers.
-	l, err := testfixture.Loopback()
+	l, err := testpki.Loopback()
 	if err != nil {
 		t.Fatal(err)
 	}
-	go testfixture.AcceptAndClose(l)
+	go testpki.AcceptAndClose(l)
 	defer l.Close()
 	hang := gateway(t, ca, []string{"127.0.0.1"}, func(w http.ResponseWriter, r *http.Request) { time.Sleep(3 * time.Second) })
 	p := testProber(ca)
 	p.totalTimeout = 300 * time.Millisecond
-	for _, url := range []string{fmt.Sprintf("https://127.0.0.1:%d", testfixture.Port(l)), hang.URL} {
+	for _, url := range []string{fmt.Sprintf("https://127.0.0.1:%d", testpki.Port(l)), hang.URL} {
 		start := time.Now()
 		if _, note := p.probe(route(url)); note != "remote network request failed" {
 			t.Errorf("%s: %q", url, note)

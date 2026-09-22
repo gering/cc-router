@@ -1,4 +1,4 @@
-package testfixture
+package testpki
 
 import "net"
 

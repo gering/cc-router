@@ -20,10 +20,10 @@ checks that stay in dotfiles.
 
 **How the harness changed.** The bash helper shelled out to curl and nc, which
 PATH fakes intercepted; the Go binary does HTTPS and TCP itself. A loopback
-fixture gateway (`tests/fixture`) now plays the server, and `run_capture`
-translates the upstream `FAKE_CURL_*` / `FAKE_NC_*` knobs into fixture state,
+test gateway (`tests/gateway`) now plays the server, and `run_capture`
+translates the upstream `FAKE_CURL_*` / `FAKE_NC_*` knobs into test-gateway state,
 so the call sites and assertion bodies stay as they were. Remote-route runs use
-`tests/testdriver` (production code trusting only the fixture CA — certificate
+`tests/testdriver` (production code trusting only the test gateway CA — certificate
 verification stays on); the production binary's own remote path is covered by
 `tests/contract_test.go`.
 
@@ -59,14 +59,14 @@ runtime dependencies.
 | 382 | usage documents the header flags | ported verbatim |
 | 397 | the default captured listing succeeds | ported verbatim |
 | 398 | the default captured listing starts with an agent row | ported verbatim |
-| 399 | remote probe uses the fixed models URL | replaced: fixture asserts `GET /c/<case>/v1/models` on the configured gateway |
+| 399 | remote probe uses the fixed models URL | replaced: the test gateway asserts `GET /c/<case>/v1/models` on the configured gateway |
 | 400 | remote probe disables redirects | replaced: redirect case (302 reported, target never requested) in the suite + TestProbeClassifiesFailures |
 | 401 | remote probe caps the response body at 1 MiB | replaced: 1 MiB body-cap case in the suite + TestProbeClassifiesFailures (incl. chunked) |
 | 402 | remote probe restricts the protocol to HTTPS | replaced: plaintext URL refused with exit 3 and no request (suite) + TestSettingValidation |
-| 403 | remote probe tells curl to read headers from stdin | retired: curl-specific transport (`--header @-`); the Go probe builds headers in memory and spawns no process. Security intent kept by the fixture header assertions and TestProductionRemoteRoute (no secret in diagnostics) |
-| 404 | remote probe sends bearer authentication | ported (reads the fixture request log) |
-| 405 | remote probe sends the Access client ID | ported (fixture log; header name canonicalized by the server) |
-| 406 | remote probe sends the Access client secret | ported (fixture log; header name canonicalized by the server) |
+| 403 | remote probe tells curl to read headers from stdin | retired: curl-specific transport (`--header @-`); the Go probe builds headers in memory and spawns no process. Security intent kept by the test gateway header assertions and TestProductionRemoteRoute (no secret in diagnostics) |
+| 404 | remote probe sends bearer authentication | ported (reads the test gateway request log) |
+| 405 | remote probe sends the Access client ID | ported (test-gateway log; header name canonicalized by the server) |
+| 406 | remote probe sends the Access client secret | ported (test-gateway log; header name canonicalized by the server) |
 | 407 | curl argv hides probe secrets | retired: there is no curl argv; no child process exists in the probe |
 | 408 | remote probe never enables redirect following | replaced: redirect case (never followed) |
 | 409 | remote list stderr hides secrets | ported verbatim |
@@ -76,7 +76,7 @@ runtime dependencies.
 | 424 | explicit profile secret is absent from stderr | ported verbatim |
 | 440 | remote exec succeeds | ported verbatim |
 | 441 | remote exec probes exactly once | ported verbatim |
-| 442 | remote exec exports the fixed HTTPS base URL | ported; asserts the configured fixture URL instead of the personal host |
+| 442 | remote exec exports the fixed HTTPS base URL | ported; asserts the configured test-gateway URL instead of the personal host |
 | 443 | remote exec exports the selected API key | ported verbatim |
 | 444 | remote exec identifies the route | ported verbatim |
 | 445 | remote exec preserves NO_PROXY | ported verbatim |
@@ -97,7 +97,7 @@ runtime dependencies.
 | 490 | local list keeps provider availability checks | ported verbatim |
 | 501 | local exec succeeds | ported verbatim |
 | 502 | local exec uses only the reachability probe | ported verbatim |
-| 503 | local exec exports the loopback gateway | ported; asserts the fixture port instead of the fixed 8317 |
+| 503 | local exec exports the loopback gateway | ported; asserts the test gateway port instead of the fixed 8317 |
 | 504 | local exec exports the local token | ported verbatim |
 | 505 | local exec identifies the route | ported verbatim |
 | 506 | loopback bypass is added only locally | ported verbatim |
@@ -108,7 +108,7 @@ runtime dependencies.
 | 511 | local exec clears the gateway selector | ported verbatim |
 | 512 | local exec clears the Anthropic Google selector | ported verbatim |
 | 519 | local exec rejects an unreachable loopback gateway | ported verbatim |
-| 520 | local reachability error names the local gateway | ported; asserts the fixture port instead of the fixed 8317 |
+| 520 | local reachability error names the local gateway | ported; asserts the test gateway port instead of the fixed 8317 |
 | 521 | local reachability failure never invokes curl | ported verbatim |
 | 537 | local headers reject $header_case input | ported verbatim |
 | 548 | local list still exits 0 without a fallback marker | ported verbatim |
@@ -133,7 +133,7 @@ runtime dependencies.
 | 612 | the token probe runs once the marker is valid | ported verbatim |
 | 633 | remote probe failure exits 1 ($expected) | ported verbatim |
 | 634 | remote probe classifies $expected | ported verbatim |
-| 635 | failed remote exec still probes exactly once ($expected) | ported; request count observed by the fixture — 0 for the two transport failures (the request never arrives; for TLS the secrets never reach the peer) |
+| 635 | failed remote exec still probes exactly once ($expected) | ported; request count observed by the test gateway — 0 for the two transport failures (the request never arrives; for TLS the secrets never reach the peer) |
 | 636 | remote $expected error hides secrets | ported verbatim |
 | 648 | remote exec rejects a missing requested model | ported verbatim |
 | 649 | missing-model error names only the model | ported verbatim |
