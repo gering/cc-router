@@ -22,9 +22,11 @@ unavailable — correct behavior, stale data):
 - **Verify ceilings per model, never copy across generations** — gpt-6-astra
   reports 900000 (not the 272000 from the old brief, not the 372000 of the
   5.6 tier). Unknown windows stay visible, per the requirements below.
-- **No borrowed rungs across generations.** The astra row borrowing
-  gpt-5.6-luna as its haiku rung is the documented hazard (retiring 5.6 kills
-  the row); the GPT-6 rung set must come from the same family once available.
+- **No stale pinned rungs.** The documented hazard in the astra row is not the
+  cross-family composition (that is the intended semantics — Luna family IS
+  the haiku role) but the *hard pin* on gpt-5.6-luna: when the route retires
+  that id, the row dies although gpt-6-astra is still served. Rungs resolve to
+  the newest served member of their family instead of a pinned id.
 
 Interim state (revised same day): the proxy catalog lags the native Codex
 update — it serves `gpt-6-astra` but still only the 5.6 ids for sol/terra/luna,
@@ -39,10 +41,24 @@ the cutover. Its acceptance criteria, agreed across both sides:
 
 - Selection draws only from the **actually served route catalog** — never from
   announced/marketing ids; catalog presence is checked per route, per probe.
-- **Four-tier semantics per family** (fable/opus/sonnet/haiku rungs filled from
-  the same generation; no cross-generation borrowed rungs).
+- **Fixed roles, newest per family** (precised 2026-09-26 with the dotfiles
+  side): the roles are fixed — Fable rung = Astra family, Opus = Sol,
+  Sonnet = Terra, Haiku = Luna — and each rung independently resolves to the
+  **newest served member of its own family**. Majors may differ across rungs;
+  a mixed generation (gpt-6-astra over 5.6 sol/terra/luna) is legal and is the
+  current reality. Same-major uniformity is explicitly NOT a requirement.
+- **No stale foreign dependencies** (this is what "no borrowed rungs" means):
+  a row must never become unavailable because a pinned id *outside* the four
+  families (spark-class) or an outdated pinned member vanished while a valid
+  family member is served. Fail closed only when a role has no served family
+  member at all.
 - **Safe context windows**: verified per selected model or visibly unknown —
-  auto-selection must never inherit a window across models or generations.
+  never inherited across models, families or generations; in particular never
+  Astra's window onto Sol/Terra.
+- **Transparent latest-policy per family**: Grok's "newest canonical with
+  known-predecessor assumption" is Robert's explicit policy for Grok; the GPT
+  families get their own documented selection policy in this task — no silent
+  guarantee carried over.
 - **Resume stability**: exact-model resume and explicit pins always beat
   auto-latest; a resumed session is never silently upgraded.
 
