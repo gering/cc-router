@@ -104,7 +104,7 @@ A running process cannot have its environment changed from outside. Four
 variables are set once by `exec` and frozen for the session:
 
 ```
-CLAUDE_CODE_MAX_CONTEXT_TOKENS   grok 500k | kimi 262k | gpt 372k
+CLAUDE_CODE_MAX_CONTEXT_TOKENS   grok 500k | kimi 262k | gpt 372k | astra 900k
 ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL    the tier slots, per provider
 CLAUDE_CODE_SUBAGENT_MODEL
 ```
@@ -120,9 +120,11 @@ silently-wrong-backend class the design rules exist to prevent.
 Consequently:
 
 - `cc-router models` lists everything — provider, tier, ceiling, availability.
-- In-session model switching is allowed **within a provider**. Sol/Terra/Luna
-  share one ceiling and one set of tier defaults; that is why the table carries
-  three Codex rows with identical values.
+- In-session model switching is allowed **between rows that share a ceiling
+  and tier defaults** — Sol/Terra/Luna, which is why the table carries three
+  Codex rows with identical values. Sharing a provider is not enough: Astra
+  runs on Codex too, but with its own 900k window, so moving to or from it is
+  a restart like any provider change.
 - Switching provider means restarting, and
   [`restore-routed-sessions.md`](restore-routed-sessions.md) is what makes a
   restart cost one command instead of a session.

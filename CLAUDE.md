@@ -100,6 +100,9 @@ ones that bite during implementation:
   configuration with documented defaults.
 - Secret storage is a contract ("these variables must be in the environment"),
   not a SOPS/age dependency.
+- **Code style: DRY, KISS, elegance.** The simplest form that satisfies the
+  contract — no speculative abstraction, no config knob without a real user;
+  two call sites do not justify a framework.
 - Out of scope: hosting CLIProxyAPI for anyone, and sharing subscriptions with
   third parties (provider terms forbid it — say so plainly, point to per-user
   API keys).

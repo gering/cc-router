@@ -118,3 +118,20 @@ func TestResolveModel(t *testing.T) {
 		t.Fatalf("differently routed shared tier: %v", err)
 	}
 }
+
+// oneLine keeps diagnostics and TSV notes on one line and free of anything
+// that steers a terminal: control bytes and invisible format characters.
+func TestOneLine(t *testing.T) {
+	for in, want := range map[string]string{
+		"plain name":      "plain name",
+		"a\tb\nc\rd":      "a b c d",
+		"esc\x1b[2J":      "esc [2J",
+		"rtl\u202eevil":   "rtl evil",
+		"zero\u200bwidth": "zero width",
+		"umlaut ä stays":  "umlaut ä stays",
+	} {
+		if got := oneLine(in); got != want {
+			t.Errorf("oneLine(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

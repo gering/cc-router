@@ -90,7 +90,10 @@ func TestLocalMarker(t *testing.T) {
 		if content != "" {
 			writeFile(t, l.marker, content)
 		}
-		if got := l.blocked(testNow); !strings.HasPrefix(got, want) || (want != "" && !strings.HasSuffix(got, "run: prepare")) {
+		got := l.blocked(testNow)
+		// want "" means the route is OPEN, and HasPrefix(got, "") is always
+		// true — so an open verdict is asserted as exactly empty.
+		if (want == "" && got != "") || (want != "" && (!strings.HasPrefix(got, want) || !strings.HasSuffix(got, "run: prepare"))) {
 			t.Errorf("marker %q: %q, want %q…", content, got, want)
 		}
 	}

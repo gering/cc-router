@@ -52,7 +52,7 @@ var settings = map[string]setting{
 	keyLocalPort: {
 		def: func(string) string { return "8317" },
 		validate: func(v string) error {
-			if _, ok := boundedInt(v, 65535); !ok {
+			if !validPort(v) {
 				return errors.New("must be a port number between 1 and 65535")
 			}
 			return nil
@@ -203,6 +203,11 @@ func splitLines(s string) []string {
 	return lines
 }
 
+func validPort(v string) bool {
+	_, ok := boundedInt(v, 65535)
+	return ok
+}
+
 var profileRe = regexp.MustCompile(`^[A-Z0-9_]+$`)
 
 func validateProfile(v string) error {
@@ -226,6 +231,8 @@ func validateRemoteURL(v string) error {
 		return errors.New("must name a host")
 	case u.User != nil:
 		return errors.New("must not contain credentials")
+	case u.Port() != "" && !validPort(u.Port()):
+		return errors.New("must use a port between 1 and 65535")
 	case strings.HasSuffix(v, "/"):
 		return errors.New("must not end with a slash")
 	}

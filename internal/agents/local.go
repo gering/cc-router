@@ -68,8 +68,10 @@ func (l *localRoute) blocked(now time.Time) string {
 	err = decodeSingle(data, &m)
 	stamp, isString := m.ExpiresAt.(string)
 	_, filesOK := m.Files.([]any)
-	version, versionOK := m.Version.(json.Number)
-	if err != nil || !versionOK || version.String() != "1" || !isString || !markerStampRe.MatchString(stamp) || !filesOK {
+	// Numeric, like the jq `.version == 1` it replaces: 1.0 is version 1.
+	version, isNumber := m.Version.(json.Number)
+	v, numErr := version.Float64()
+	if err != nil || !isNumber || numErr != nil || v != 1 || !isString || !markerStampRe.MatchString(stamp) || !filesOK {
 		return "the local fallback marker is unusable — " + l.hint
 	}
 	expires, err := time.Parse("2006-01-02T15:04:05Z", stamp)

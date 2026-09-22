@@ -73,6 +73,7 @@ func TestSettingValidation(t *testing.T) {
 			"https://gw.example": true, "https://gw.example:8443/prefix": true,
 			"http://gw.example": false, "https://user:pw@gw.example": false, "https://gw.example/": false,
 			"https://gw.example?x=1": false, "https://gw.example#f": false, "https://": false, "gw.example": false,
+			"https://gw.example:70000": false, "https://gw.example:0": false,
 		},
 		keyLocalHost: {"127.0.0.1": true, "::1": true, "localhost": false, "0.0.0.0": false, "gw.example": false},
 		keyLocalPort: {"8317": true, "65535": true, "0": false, "65536": false, "08317": false, "x": false},

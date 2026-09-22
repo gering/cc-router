@@ -189,29 +189,33 @@ type Selection struct {
 
 // modelContext returns a model's window from the first source that knows:
 // VERIFIED, then catalog metadata (auto-selectable ids only, clamped to the
-// family cap), then the newest verified PREDECESSOR (an assumption).
-func (s *selector) modelContext(agent, id string) (int, bool) {
+// family cap), then the newest verified PREDECESSOR (an assumption). note
+// names a window that is not a measured one, so the source and its label
+// come from one place.
+func (s *selector) modelContext(agent, id string) (ctx int, note string, ok bool) {
 	if ctx, ok := lookupVerified(id); ok {
-		return ctx, true
+		return ctx, "", true
 	}
 	limit, ok := discoveryContextCap[agent]
 	if !ok {
-		return 0, false
+		return 0, "", false
 	}
 	pattern, ok := discovery[agent]
 	if !ok || !isCandidate(pattern, id) {
-		return 0, false
+		return 0, "", false
 	}
 	// A catalog value ENDS the search: the gateway said something plausible,
 	// so nothing is assumed over it — a smaller window included.
 	if ctx, ok := s.cat.Context[id]; ok {
-		return min(ctx, limit), true
+		ctx = min(ctx, limit)
+		return ctx, fmt.Sprintf("; context window %d from catalog metadata, not measured", ctx), true
 	}
 	from, ok := assumedFrom(pattern, id)
 	if !ok {
-		return 0, false
+		return 0, "", false
 	}
-	return lookupVerified(from)
+	ctx, ok = lookupVerified(from)
+	return ctx, fmt.Sprintf("; context window %d ASSUMED from predecessor %s, not verified", ctx, from), ok
 }
 
 // assumedFrom is the newest VERIFIED candidate strictly older than id, across
@@ -229,29 +233,10 @@ func assumedFrom(pattern *regexp.Regexp, id string) (string, bool) {
 	return best, best != ""
 }
 
-// contextNote names a ceiling that is not a measured one. Mirrors
-// modelContext's order.
-func (s *selector) contextNote(agent, id string, ctx int) string {
-	if _, ok := lookupVerified(id); ok {
-		return ""
-	}
-	if _, ok := s.cat.Context[id]; ok {
-		return fmt.Sprintf("; context window %d from catalog metadata, not measured", ctx)
-	}
-	pattern, ok := discovery[agent]
-	if !ok {
-		return ""
-	}
-	if from, ok := assumedFrom(pattern, id); ok {
-		return fmt.Sprintf("; context window %d ASSUMED from predecessor %s, not verified", ctx, from)
-	}
-	return ""
-}
-
 // ceiling is a model's window or the conservative one, plus its note.
 func (s *selector) ceiling(agent, id string) (int, string) {
-	if ctx, ok := s.modelContext(agent, id); ok {
-		return ctx, s.contextNote(agent, id, ctx)
+	if ctx, note, ok := s.modelContext(agent, id); ok {
+		return ctx, note
 	}
 	return unverifiedMaxCtx, fmt.Sprintf("; context window unknown, conservative ceiling %d", unverifiedMaxCtx)
 }
@@ -259,7 +244,7 @@ func (s *selector) ceiling(agent, id string) (int, string) {
 // rungHolds: the exported ceiling is the PRIMARY's and set once per session,
 // so every rung reachable with /model has to hold it.
 func (s *selector) rungHolds(agent, id string, ceiling int) bool {
-	if ctx, ok := s.modelContext(agent, id); ok {
+	if ctx, _, ok := s.modelContext(agent, id); ok {
 		return ctx >= ceiling
 	}
 	return ceiling <= unverifiedMaxCtx

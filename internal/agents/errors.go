@@ -3,6 +3,7 @@ package agents
 import (
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 // Exit codes. They describe failures BEFORE the exec; once the target runs,
@@ -44,10 +45,11 @@ func hasControl(s string) bool {
 // oneLine flattens what would otherwise add rows or columns to the TSV
 // contract, or steer a terminal: a note can embed a credential FILENAME and a
 // diagnostic an argument, so every control byte — not just CR, LF and TAB —
+// and every invisible format character (bidi overrides, zero-width marks)
 // becomes a space before either reaches stdout or stderr.
 func oneLine(s string) string {
 	return strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f {
+		if r < 0x20 || r == 0x7f || unicode.Is(unicode.Cf, r) {
 			return ' '
 		}
 		return r
