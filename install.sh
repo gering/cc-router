@@ -16,7 +16,7 @@ status=0
 
 found=0
 for src in "$ROOT"/bin/*; do
-  [ -f "$src" ] && [ -x "$src" ] || continue
+  if [ ! -f "$src" ] || [ ! -x "$src" ]; then continue; fi
   case "$src" in *.tmp) continue ;; esac
   found=1
   name=${src##*/}
