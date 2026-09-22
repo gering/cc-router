@@ -5,6 +5,31 @@ New models should become selectable through one reviewed profile update, without
 synchronized hand edits across CLI flags, the picker, resume mapping and status.
 User-approved direction 2026-09-05; build on architecture.md, not a second registry.
 
+## Directive 2026-09-26: full GPT-6 support with auto-latest
+
+Robert's instruction after the Codex catalog update broke `--sol` (the exported
+haiku rung `gpt-5.3-codex-spark` vanished; fail-closed made the whole row
+unavailable — correct behavior, stale data):
+
+- **Tier semantics for the GPT-6 family:** Fable level = Astra, Opus level =
+  Sol, Sonnet level = Terra, Haiku level = Luna. The table has no fable column —
+  the primary-model slot carries the fable-level model; the opus/sonnet/haiku
+  rungs get gpt-6-sol / gpt-6-terra / gpt-6-luna once the catalog serves them.
+- **Auto-latest for astra/sol/terra/luna exactly like Grok** (dotfiles PR #43
+  pattern: newest offered canonical id per family, bounded candidate list,
+  note names what was auto-selected). Recurring manual pins are the failure
+  mode this task exists to end.
+- **Verify ceilings per model, never copy across generations** — gpt-6-astra
+  reports 900000 (not the 272000 from the old brief, not the 372000 of the
+  5.6 tier). Unknown windows stay visible, per the requirements below.
+- **No borrowed rungs across generations.** The astra row borrowing
+  gpt-5.6-luna as its haiku rung is the documented hazard (retiring 5.6 kills
+  the row); the GPT-6 rung set must come from the same family once available.
+
+Interim state: the immediate catalog hotfix (data rows only) lands in the live
+dotfiles bash via the dotfiles manager; this task implements the durable
+auto-latest generalization in the Go core after the cutover.
+
 ## Current friction
 The routing helper embeds a profile table while the zsh wrapper separately lists
 model flags. Dynamic discovery is currently special-cased for Grok; new GPT models
