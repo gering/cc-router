@@ -15,7 +15,12 @@ patent clause buys nothing.
 your own accounts on your own host, and that giving third parties access
 violates provider terms. Said once, in the open, not buried in a task file.
 
-## Language: bash now, Go later, tests as the bridge
+## Language: Go directly, tests as the bridge
+
+**Revised 2026-09-22 by Robert's explicit decision** (made in the extraction
+worker's plan review): the core is written in Go **directly** — the earlier
+two-step plan (extract bash as-is, port later) is deliberately replaced. The
+sections below keep the reasoning that still holds and mark what changed.
 
 The long-term target for the core is **Go**. The reasons are in the current
 code, not in taste:
@@ -32,24 +37,18 @@ code, not in taste:
 - A single binary removes the `jq` dependency, the bash 3.2 vs. 5 split, and
   most of the installation problem.
 
-**But not as a rewrite.** The existing suites are already language-neutral —
-they drive fake launchers and assert argv and environment variable *names* from
-the outside. That makes them a black-box specification that runs against a Go
-binary exactly as it runs against bash, which turns a later port from a risk
-into a refactor.
+**The tests are what makes the direct port safe.** The existing suites are
+language-neutral — they drive fake launchers and assert argv and environment
+variable *names* from the outside. That makes them a black-box specification
+that runs against a Go binary exactly as it runs against bash. They come across
+**as the specification** and must run green against the Go core (`tests/run`)
+alongside Go-native tests; the bash implementation in dotfiles stays live and
+untouched until the coordinated cutover.
 
-Therefore, three phases:
-
-1. **Extract bash as-is.** Depersonalise, move the table to `share/`, add
-   `make check` and CI. The repository becomes installable; daily work never
-   stops.
-2. **Harden the tests.** They are the contract, not the implementation.
-3. **Port component by component to Go**, each against the same suite. Order by
-   validation density: `cliproxy-auth` and the probe/header path first.
-
-> **Do not invest in bash that phase 3 discards.** No cosmetic refactor of
-> `cliproxy-auth`, no split into a dozen `lib/` files. Phase 1 depersonalises
-> and ships; that is all.
+The earlier two-phase plan ("extract bash as-is, port later") was replaced on
+2026-09-22: with the bash implementation still running in dotfiles, an interim
+bash extraction would have shipped a second live copy of code the port
+discards — the extraction goes straight to the durable shape instead.
 
 The shim stays `sh` permanently — it only resolves a path and `exec`s.
 
@@ -153,13 +152,15 @@ Three levers follow:
 ## Quality gate
 
 ```
-make check   # shellcheck -s sh + shfmt -d + tests/run + go vet + go test -race
+make check   # gofmt/vet/staticcheck + go test -race + tests/run (contract
+             # suites against the built binary) + shellcheck -s sh + shfmt -d
+             # for the remaining shell (shim, install.sh)
 ```
 
-One target, same in CI. GitHub Actions matrix over macOS and Linux — the only
-reason CI exists here is that the author's machine has bash 3.2 and a stranger's
-does not. Tests never touch the network: fake launchers, assertions on variable
-*names*, so the suite runs in CI without any secret.
+One target, same in CI (small Makefile, native Go tooling — per Robert's
+2026-09-22 decision). GitHub Actions matrix over macOS and Linux. Tests never
+touch the network: fake launchers, assertions on variable *names*, so the suite
+runs in CI without any secret.
 
 Keep the existing hand-rolled harness rather than adopting bats: it works, it
 has no dependencies, and a stranger runs it with `sh tests/run`.

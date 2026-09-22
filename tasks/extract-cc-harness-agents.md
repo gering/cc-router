@@ -21,12 +21,14 @@ architecture doc was written).
 
 ## Requirements
 
-- [ ] `bin/cc-harness-agents` extracted from `~/dotfiles/.scripts/cc-harness-agents`
-      at current HEAD, behavior-identical except for the changes below.
-- [ ] **Phase 1 discipline** (`architecture.md`): no refactor, no split into
-      `lib/` — depersonalise and ship. Convert the ~4 bashisms to POSIX `sh`
-      and switch the shebang to `#!/bin/sh` only if the suite stays green;
-      otherwise keep bash and note it in the task file.
+- [ ] **(Revised 2026-09-22, Robert's decision in the worker's plan review):**
+      the core is implemented **directly in Go** — behavior-equivalent to
+      `~/dotfiles/.scripts/cc-harness-agents` at current HEAD, verified by the
+      language-neutral contract suites running against the built binary. The
+      dotfiles bash stays live and untouched until the coordinated cutover.
+      Quality gate: small Makefile, `make check` = gofmt/vet/staticcheck +
+      `go test -race` + `tests/run`. The bash-specific requirements this
+      replaces (POSIX conversion, behavior-identical bash copy) are void.
 - [ ] Model table moved to `share/models.tsv` (tab-separated, same columns),
       read per invocation; user override honored at
       `~/.config/cc-router/models.tsv`. Table content taken from dotfiles HEAD
