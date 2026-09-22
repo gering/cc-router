@@ -128,4 +128,9 @@ func TestLocalToken(t *testing.T) {
 	if got := l.token(); got != "token" {
 		t.Fatalf("token = %q", got)
 	}
+	// execve rejects an environment entry with a NUL; no usable key instead.
+	writeFile(t, l.tokenFile(), "tok\x00en")
+	if got := l.token(); got != "" {
+		t.Fatalf("token with a NUL = %q", got)
+	}
 }

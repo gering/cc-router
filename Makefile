@@ -1,6 +1,7 @@
 # A thin layer over the Go toolchain: Go decides what to rebuild and caches
 # it; these targets only name the steps. `make check` is the one gate, locally
-# and in CI, and never modifies the tree (`make fmt` does).
+# and in CI; it never rewrites sources (`make fmt` does), its only output is
+# the ignored bin/ it builds last.
 
 GO      ?= go
 TOOL    := $(GO) tool -modfile=tools/go.mod

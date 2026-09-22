@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -60,20 +61,20 @@ func TestLookPath(t *testing.T) {
 	if got, err := lookPath("tool", "/nonexistent:"+dir); err != nil || got != exe {
 		t.Fatalf("lookPath = %q %v", got, err)
 	}
-	if _, err := lookPath("plain", dir); err == nil {
-		t.Fatal("a non-executable file was found")
+	// Found only as a non-executable file: "permission denied" (126), as a
+	// shell's exec reports it, never "not found" (127).
+	if _, err := lookPath("plain", dir); !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("a non-executable file: %v", err)
+	}
+	if _, err := lookPath("absent", dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a missing name: %v", err)
 	}
 	if got, _ := lookPath("./x/y", ""); got != "./x/y" {
 		t.Fatal("a path with a slash is not taken as is")
 	}
 	// A relative PATH entry must never decide which binary receives the
 	// routing credentials, even when it holds a matching executable.
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
 	t.Chdir(dir)
-	defer os.Chdir(cwd)
 	for _, path := range []string{"", ".", ":" + string(filepath.Separator) + "nonexistent"} {
 		if got, err := lookPath("tool", path); err == nil {
 			t.Errorf("PATH %q resolved to %q — a relative entry was searched", path, got)

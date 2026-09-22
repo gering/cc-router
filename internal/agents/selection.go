@@ -166,10 +166,7 @@ func isCandidate(pattern *regexp.Regexp, id string) bool {
 	if !pattern.MatchString(id) {
 		return false
 	}
-	major, minor, dotted := release(id)
-	if !dotted {
-		minor = major
-	}
+	major, minor, _ := release(id)
 	return len(major) <= versionMaxDigits && len(minor) <= versionMaxDigits
 }
 

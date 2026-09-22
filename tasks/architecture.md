@@ -172,9 +172,10 @@ Three levers follow:
 ## Quality gate
 
 ```
-make check   # gofmt/vet/staticcheck + go test -race + tests/run (contract
-             # suites against the built binary) + shellcheck -s sh + shfmt -d
-             # for the remaining shell (shim, install.sh)
+make check   # gofmt/vet/staticcheck, shellcheck (-s sh for the POSIX glue,
+             # -s bash for the carried-over suite) + shfmt -d, go test -race,
+             # tests/run (contract suites against the built binary), then
+             # make build
 ```
 
 One target, same in CI (small Makefile, native Go tooling — per Robert's

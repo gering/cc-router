@@ -1,7 +1,8 @@
 # cc-router agent table — one row per foreign agent; a new agent is a new row.
 # Tab-separated, nine fields, no header row; lines starting with # are comments.
 #
-#   name      agent id, exposed as cc-harness:<name> (and the --<name> flag)
+#   name      agent id, exposed as cc-harness:<name> (and as the claude
+#             wrapper's --<name> flag, which lives outside this repo)
 #   model     ANTHROPIC_MODEL — the LAST-KNOWN model for a discovering agent
 #   opus      ANTHROPIC_DEFAULT_OPUS_MODEL
 #   sonnet    ANTHROPIC_DEFAULT_SONNET_MODEL (the "previous rung" discovery moves)

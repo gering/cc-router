@@ -5,7 +5,7 @@ tiers — through your own hosted [CLIProxyAPI](https://github.com/router-for-me
 with one flag:
 
 ```sh
-claude --grok     # the newest canonical Grok the gateway offers (grok-4.6 today)
+claude --grok     # the newest canonical Grok the gateway offers
 claude --kimi     # kimi-k3
 claude --sol      # gpt-5.6-sol
 claude            # unchanged: Anthropic
@@ -56,10 +56,12 @@ parses `list`; the resume bridge calls `resolve-model`.
 ## Configuration
 
 Non-secret settings resolve per key: **environment > `~/.config/cc-router/config.env`
-> default.** The file holds `KEY=VALUE` lines and `#` comments; it is parsed as
-data, never sourced, and unknown or duplicate keys are errors.
+> default.** A variable that is set wins even when empty — and an empty value
+is then rejected, so unset it rather than blank it. The file holds `KEY=VALUE`
+lines and `#` comments; it is parsed as data, never sourced, and unknown or
+duplicate keys are errors.
 
-| Key | Default | |
+| Key | Default | Meaning |
 |---|---|---|
 | `CC_ROUTER_REMOTE_URL` | — (required for the remote route) | `https://` gateway base URL |
 | `CLIPROXY_PROFILE` | from `~/.config/cliproxy/client.env` | selects the secret variables below |
@@ -150,7 +152,9 @@ and it only works inside a prepared window.
 
 **A new model is a table row, never a code path.** Provider, tiers and the real
 context ceiling live in one line of a table. If a sixth model needs a branch,
-the change is in the wrong shape.
+the change is in the wrong shape. What is policy, not data: which newer
+releases discovery may pick, and their verified windows — a pinned or
+discovered id outside that list gets a conservative ceiling and says so.
 
 **Fail closed, and say which layer failed.** `403` Access, `401` proxy key,
 `502` origin, TLS, missing model — each is a distinct message. A generic "proxy

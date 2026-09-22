@@ -7,7 +7,10 @@ set -eu
 PKG="${1:?usage: $0 <pkg-dir>}"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/test-install.XXXXXX")
-trap 'rm -rf -- "$TMP"' EXIT INT TERM
+# INT/TERM only run the handler; without an explicit exit the script resumes.
+trap 'rm -rf -- "$TMP"' EXIT
+trap 'rm -rf -- "$TMP"; exit 130' INT
+trap 'rm -rf -- "$TMP"; exit 143' TERM
 fails=0
 expect() { # <label> <command…>
   label=$1

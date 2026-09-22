@@ -41,6 +41,10 @@ for _ in $(seq 100); do
   [ -r "$TMP_ROOT/gateway.env" ] && break
   sleep 0.05
 done
+[ -r "$TMP_ROOT/gateway.env" ] || {
+  echo "test gateway did not start within 5s" >&2
+  exit 1
+}
 # shellcheck source=/dev/null
 . "$TMP_ROOT/gateway.env"
 

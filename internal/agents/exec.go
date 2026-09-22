@@ -183,6 +183,9 @@ func (a *App) selectAndReport(row Row, cat *Catalog) Row {
 // the shell's 127 (not found) / 126 (not executable) statuses.
 func (a *App) replace(argv []string, env *Env) error {
 	path, err := lookPath(argv[0], a.Env.Get("PATH"))
+	if errors.Is(err, os.ErrPermission) {
+		return fail(exitCannotExecute, "cannot execute %s: permission denied", oneLine(argv[0]))
+	}
 	if err != nil {
 		return fail(exitNotFound, "%s: command not found", oneLine(argv[0]))
 	}
@@ -198,19 +201,26 @@ func (a *App) replace(argv []string, env *Env) error {
 // on PATH, but a relative entry — "" or "." — is SKIPPED, not searched. A
 // shell would run ./claude there, and this exec hands the target the routing
 // credentials, so the current directory must never decide which binary gets
-// them (what os/exec.LookPath reports as ErrDot).
+// them (what os/exec.LookPath reports as ErrDot). Like the shell, a name found
+// only as a non-executable file is "permission denied" (126), not "not found".
 func lookPath(file, path string) (string, error) {
 	if strings.Contains(file, "/") {
 		return file, nil
 	}
+	notFound := os.ErrNotExist
 	for _, dir := range filepath.SplitList(path) {
 		if !filepath.IsAbs(dir) {
 			continue
 		}
 		candidate := dir + "/" + file
-		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+		info, err := os.Stat(candidate)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		if info.Mode()&0o111 != 0 {
 			return candidate, nil
 		}
+		notFound = os.ErrPermission
 	}
-	return "", os.ErrNotExist
+	return "", notFound
 }

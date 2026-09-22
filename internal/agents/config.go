@@ -2,7 +2,6 @@ package agents
 
 import (
 	"errors"
-	"fmt"
 	"io/fs"
 	"net/url"
 	"os"
@@ -145,10 +144,11 @@ func (c *Config) Value(key string) (value string, ok bool, err error) {
 		value, ok = c.file[key]
 	}
 	if !ok {
-		if s := settings[key]; s.def != nil {
-			return s.def(c.home), true, nil
+		s := settings[key]
+		if s.def == nil {
+			return "", false, nil
 		}
-		return "", false, nil
+		value, source = s.def(c.home), "the default"
 	}
 	if err := settings[key].validate(value); err != nil {
 		return "", false, fail(exitCapability, "invalid %s (from %s): %v", key, source, err)
@@ -241,7 +241,7 @@ func validateRemoteURL(v string) error {
 
 func validateAbsPath(v string) error {
 	if !filepath.IsAbs(v) || hasControl(v) {
-		return fmt.Errorf("must be an absolute path")
+		return errors.New("must be an absolute path")
 	}
 	return nil
 }

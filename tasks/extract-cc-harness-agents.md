@@ -109,14 +109,13 @@ architecture doc was written).
 
 ### Status 2026-09-22 (later)
 
-- PR #4 open (`task/extract-cc-harness-agents`, head `fc9d050`), CI green on
-  macOS + Linux. Test helpers renamed by role: `internal/testpki` (shared
+- PR #4 open (`task/extract-cc-harness-agents`); `git log` is the source for
+  its head. Test helpers are named by role: `internal/testpki` (shared
   PKI/listeners), `tests/gateway` (stand-in HTTPS gateway for the bash suite).
-- A local `/swarm:review` of the branch delta is running (workflow run
-  `wf_ae603794-6e8`, Claude lenses/merge/verify patched to Sonnet in the staged
-  copy under `.swarm-workflow.1rfsQE/` — delete that dir and
-  `$TMPDIR/swarm-review.oneXXt` after the report). Read-only: present findings,
-  fix only on request.
+- Swarm reviews run locally on Sonnet, read-only; fixes are applied in the
+  main session only. One run's subagent committed on its own (under Robert's
+  name, not pushed) — dropped, kept as tag `backup/rogue-swarm-commit`. Since
+  then HEAD and the tree are checked before and after every run.
 - Swarm report triaged with Robert (27 findings, 1 refuted). Applied: PATH
   lookup skips relative entries, diagnostics sanitised, `resolve-model` refuses
   an id it cannot have produced, one capped `readRegularFile` and one

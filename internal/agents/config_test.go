@@ -48,6 +48,18 @@ func TestConfigPrecedence(t *testing.T) {
 	}
 }
 
+// A default derived from HOME meets the same validator as an explicit value:
+// a relative HOME must not yield a relative credential dir.
+func TestConfigValidatesDefaults(t *testing.T) {
+	cfg, err := LoadConfig(NewEnv(nil), "relative-home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cfg.Must(keyProxyDir); err == nil || !strings.Contains(err.Error(), "the default") {
+		t.Fatalf("relative default accepted: %v", err)
+	}
+}
+
 func TestConfigRejects(t *testing.T) {
 	for name, content := range map[string]string{
 		"unknown key": "CC_ROUTER_NOPE=1\n",

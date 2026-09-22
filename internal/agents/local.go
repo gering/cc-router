@@ -99,18 +99,23 @@ func decodeSingle(data []byte, v any) error {
 
 // token reads the gateway key. Content, not readability, is checked: an
 // interrupted login leaves a 0-byte key, and whitespace is stripped from the
-// value itself so the check and the export see the same string.
+// value itself so the check and the export see the same string. A control
+// byte left after that (a NUL would make execve fail) means no usable key.
 func (l *localRoute) token() string {
 	data, err := readRegularFile(l.tokenFile())
 	if err != nil {
 		return ""
 	}
-	return strings.Map(func(r rune) rune {
+	token := strings.Map(func(r rune) rune {
 		if strings.ContainsRune(" \t\n\v\f\r", r) {
 			return -1
 		}
 		return r
 	}, string(data))
+	if hasControl(token) {
+		return ""
+	}
+	return token
 }
 
 // live is a TCP reachability check only: over plain loopback every other
@@ -270,7 +275,7 @@ func (l *localRoute) checkCreds(r Row, now time.Time) (bool, string) {
 		if first != "" {
 			continue
 		}
-		base := filepath.Base(path)
+		base := oneLine(filepath.Base(path)) // a filename reaches stderr and the TSV note
 		switch v {
 		case verdictDisabled:
 			first = fmt.Sprintf("%s credentials disabled — %s", r.Provider, relogin)
