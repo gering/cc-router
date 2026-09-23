@@ -23,19 +23,21 @@ repository:
 | `.claude/knowledge/services/cliproxy-remote.md` | the pitfalls worth keeping |
 
 Test suites that must come along, because they encode the security contract:
-206 routing tests, 309 auth-CLI tests and 180 quota tests, plus the companion's
-Go suite with `-race`. Re-count rather than trust these numbers — they were read
-off `gering/dotfiles` at `f0effff`, and the routing suite grows whenever the listing
-contract does.
+the routing suite (done — 389 assertions run against the Go core in `tests/run`,
+mapped in `tests/migration-coverage.md`), 309 auth-CLI tests and 180 quota
+tests, plus the companion's Go suite with `-race`. The last three figures were
+read off `gering/dotfiles` at `f0effff`; re-count them when those pieces move.
 
 ## What has to change on the way out
 
 - [ ] **Remove every personal constant.** `llm.gering.dev`, `mars`,
       `/volume1/docker/...`, the `MACBOOK` profile, port `18321`. All of it
       becomes configuration with documented defaults.
-- [ ] **Name the config surface.** One file (`~/.config/cc-router/config.env`?)
-      instead of today's mix of `client.env`, SOPS-provided variables and
-      environment overrides. Decide what a fresh install needs to fill in.
+- [x] **Name the config surface.** Done for the core:
+      `~/.config/cc-router/config.env`, strict `KEY=VALUE` data, environment >
+      file > documented default, secrets refused outright. Keys and defaults
+      are in the README; `~/.config/cliproxy/client.env` stays the profile
+      fallback until the quota helpers move.
 - [ ] **Decouple secret storage.** The dotfiles use SOPS/age. A stranger will
       not. Define the contract as "these variables must be in the environment"
       and ship one worked example, rather than a dependency.
@@ -43,8 +45,9 @@ contract does.
       first. It must be data, not code, and it must survive updates.
 - [ ] **Ship the companion.** Source plus a build; decide whether a prebuilt
       binary or an image is published, and how a user pins it.
-- [x] **Installation.** Decided: `git clone` plus `install.sh` symlinks; a
-      Homebrew tap once the core is a Go binary; a Claude Code plugin for the
+- [x] **Installation.** Decided and in place for the core: `git clone`,
+      `make build`, then `install.sh` symlinks what was built; a Homebrew tap
+      now that the core is a Go binary; a Claude Code plugin for the
       Claude-Code-side pieces only. See [`architecture.md`](architecture.md).
 - [ ] **Server-side setup guide.** CLIProxyAPI, the reverse-proxy route, the
       block on `/v0/management*` and `/admin*`, and the outer auth layer —

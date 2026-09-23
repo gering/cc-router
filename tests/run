@@ -1,0 +1,25 @@
+#!/bin/sh
+# Contract suites against freshly built binaries. Builds the production binary,
+# the test driver and the test gateway into a temporary package layout
+# (bin/ next to a share/ link), then runs every suite and reports all failures.
+set -eu
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+PKG=$(mktemp -d "${TMPDIR:-/tmp}/cc-router-tests.XXXXXX")
+# INT/TERM only run the handler: without an explicit exit the script would
+# resume and run the remaining suites against the deleted tree.
+trap 'rm -rf -- "$PKG"' EXIT
+trap 'rm -rf -- "$PKG"; exit 130' INT
+trap 'rm -rf -- "$PKG"; exit 143' TERM
+mkdir -p "$PKG/bin"
+ln -s "$ROOT/share" "$PKG/share"
+# Same toolchain as the Makefile, which passes its GO through.
+GO=${GO:-go}
+for target in cmd/cc-harness-agents tests/testdriver tests/gateway; do
+  (cd "$ROOT" && "$GO" build -o "$PKG/bin/${target##*/}" "./$target")
+done
+
+status=0
+bash "$ROOT/tests/test-cc-harness-agents.sh" "$PKG" || status=1
+sh "$ROOT/tests/test-install.sh" "$PKG" || status=1
+exit "$status"

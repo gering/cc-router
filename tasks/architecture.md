@@ -58,27 +58,45 @@ macOS ships is where a stranger's silent failure would come from.
 
 ## Layout
 
+Implemented (migration step 1):
+
+```
+cmd/cc-harness-agents/    the binary: CLI entry point and production wiring
+internal/agents/          the routing core — table, probes, selection, exec
+internal/testpki/         hermetic TLS fixtures (CA, loopback listeners)
+share/models.tsv          <- the table as data
+tests/                    run  +  the carried-over upstream suites
+Makefile                  build / check / fmt over the Go toolchain
+install.sh                POSIX, links bin/* onto PATH
+.github/workflows/        check.yml — the same gate on macOS and Linux
+bin/                      build output, generated, never committed
+```
+
+Planned, still in the dotfiles:
+
 ```
 bin/          cc-router  claude(shim)  cliproxy-auth
-lib/          table.sh probe.sh env.sh diag.sh route.sh
-share/        models.tsv          <- the table as data
 statusline/   segment + provider quota helpers
 companion/    Go
-tests/        run  +  test-*.sh
 docs/         server-setup.md  troubleshooting.md
-install.sh
 ```
 
-**One entry point with subcommands:** `cc-router run|models|status|statusline|
-auth|doctor`. The shim, the statusline and the quota helpers call *it* and hold
-no routing logic of their own. Today "the model table exists once" is
-discipline; this makes it structure.
+**One entry point with subcommands** — the target shape: `cc-router run|models|
+status|statusline|auth|doctor`, with the shim, the statusline and the quota
+helpers calling *it* and holding no routing logic of their own. Today "the model
+table exists once" is discipline; that would make it structure.
 
-**`share/models.tsv` is data.** Today the table is a string inside the script.
-As a file it survives `git pull`, a user can override it from
-`~/.config/cc-router/models.tsv` without forking, and it is read per invocation
-rather than baked in at install time. Switch the `|` separator to tab so the
-table and the TSV output contract speak one format.
+Today: one binary, `cc-harness-agents`, with the `list` / `exec` /
+`resolve-model` subcommands. `list` and `exec` are work-system's external
+contract and do not move when the entry point does — a later `cc-router` gains
+the subcommands, it does not rename these.
+
+**`share/models.tsv` is data.** The table is a tab-separated file read per
+invocation, not a string baked in at install time, and
+`~/.config/cc-router/models.tsv` replaces it completely without forking. (The
+dotfiles bash still carries the table inside the script; that is what the
+cutover retires.) Tab is the separator, so the table and the TSV output
+contract speak one format.
 
 ## What one session can and cannot do
 
@@ -86,8 +104,8 @@ A running process cannot have its environment changed from outside. Four
 variables are set once by `exec` and frozen for the session:
 
 ```
-CLAUDE_CODE_MAX_CONTEXT_TOKENS   grok 500k | kimi 262k | gpt 372k
-ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU}_MODEL    the tier slots, per provider
+CLAUDE_CODE_MAX_CONTEXT_TOKENS   grok 500k | kimi 262k | codex rows 372k
+ANTHROPIC_DEFAULT_{FABLE,OPUS,SONNET,HAIKU}_MODEL    the tier slots, per provider
 CLAUDE_CODE_SUBAGENT_MODEL
 ```
 
@@ -102,9 +120,11 @@ silently-wrong-backend class the design rules exist to prevent.
 Consequently:
 
 - `cc-router models` lists everything — provider, tier, ceiling, availability.
-- In-session model switching is allowed **within a provider**. Sol/Terra/Luna
-  share one ceiling and one set of tier defaults; that is why the table carries
-  three Codex rows with identical values.
+- In-session model switching is allowed **between rows that share a ceiling
+  and tier defaults** — the four Codex rows (Astra/Sol/Terra/Luna) carry one
+  ladder at one 372k ceiling and differ only in the primary. That is why
+  Astra is exported at 372k although it serves 900k: every rung is one
+  `/model` away, and the ceiling is one number per session.
 - Switching provider means restarting, and
   [`restore-routed-sessions.md`](restore-routed-sessions.md) is what makes a
   restart cost one command instead of a session.
@@ -152,9 +172,10 @@ Three levers follow:
 ## Quality gate
 
 ```
-make check   # gofmt/vet/staticcheck + go test -race + tests/run (contract
-             # suites against the built binary) + shellcheck -s sh + shfmt -d
-             # for the remaining shell (shim, install.sh)
+make check   # gofmt/vet/staticcheck, shellcheck (-s sh for the POSIX glue,
+             # -s bash for the carried-over suite) + shfmt -d, go test -race,
+             # tests/run (contract suites against the built binary), then
+             # make build
 ```
 
 One target, same in CI (small Makefile, native Go tooling — per Robert's
@@ -167,14 +188,17 @@ has no dependencies, and a stranger runs it with `sh tests/run`.
 
 ## Distribution
 
-**Primary: checkout plus symlinks.** `git clone && ./install.sh`, update via
-`git pull`. No infrastructure, identical on macOS and Linux, and — the real
-argument — it is the same mechanism used for development, so there is no second
-install path that goes untested.
+**Primary: checkout plus symlinks.** `git clone && make build && ./install.sh`,
+update via `git pull && make build`. The core is a compiled binary, so building
+is part of the install path; `install.sh` links what `make build` produced.
+Building needs a Go toolchain — `mise.toml` pins the version the gate runs — and
+running the binary needs nothing else. No infrastructure, identical on macOS and
+Linux, and — the real argument — it is the same mechanism used for development,
+so there is no second install path that goes untested.
 
-**Later: a Homebrew tap.** Nearly free once the core is a Go binary
-(GoReleaser builds, the formula points at the release). Maintaining a formula
-for shell scripts first would gain nothing the symlink does not.
+**Next: a Homebrew tap.** Nearly free now that the core is a Go binary
+(GoReleaser builds, the formula points at the release), and it removes the
+toolchain requirement for people who only want to use it.
 
 **Separately: a Claude Code plugin** for the Claude-Code-side pieces only —
 statusline segment, `/cc-router:status`, `/cc-router:models`, a diagnostic

@@ -1,0 +1,47 @@
+# cc-router agent table — one row per foreign agent; a new agent is a new row.
+# Tab-separated, ten fields, no header row; lines starting with # are comments.
+#
+#   name      agent id, exposed as cc-harness:<name> (and as the claude
+#             wrapper's --<name> flag, which lives outside this repo)
+#   model     ANTHROPIC_MODEL — the LAST-KNOWN model for a discovering agent
+#   fable     ANTHROPIC_DEFAULT_FABLE_MODEL — the picker tier above opus. Left
+#             unset, picking it sends a claude-fable id to the gateway, out of
+#             the routed family, so every row names one.
+#   opus      ANTHROPIC_DEFAULT_OPUS_MODEL
+#   sonnet    ANTHROPIC_DEFAULT_SONNET_MODEL (the "previous rung" discovery moves)
+#   haiku     ANTHROPIC_DEFAULT_HAIKU_MODEL
+#   max_ctx   CLAUDE_CODE_MAX_CONTEXT_TOKENS — ONE number per session, applied
+#             to whichever model is active, including after /model. Too low
+#             compacts early; too high overflows upstream.
+#   cred      credential prefix in the proxy dir (<cred>-*.json)
+#   login     cliproxyapi login flag suggested when credentials are missing
+#   provider  label for messages
+#
+# Every rung a user can reach with /model must hold max_ctx. The codex rows
+# hold that; grok (200000 composer under 500000) and kimi (unmeasured
+# kimi-k2.7-code) still carry a smaller haiku rung — a known exception, not a
+# pattern to copy. ~/.config/cc-router/models.tsv, when present, replaces this
+# file.
+#
+# Values (verified against the route's catalog and measurements):
+#   grok-4.6        500000; the composer haiku rung is only 200k (haiku tier only)
+#   kimi-k3         262144 — the Kimi Code plan serves 256k, not the marketed 1M
+#   gpt-5.6-*       372000 — the subscription cap
+#   gpt-6-astra     900000 measured, but exported as 372000: see the ladder
+#
+# CODEX LADDER (astra/sol/terra/luna): one ladder in all four rows — fable =
+# Astra, opus = Sol, sonnet = Terra, haiku = Luna — so the rows differ ONLY in
+# their primary. Every rung is reachable with /model and the window is
+# session-wide, so the ceiling is 372000 for all four, astra included: its own
+# 900000 over a Luna rung is one /model away from an upstream overflow that
+# auto-compact never prevents. The shared ladder couples availability on
+# purpose: a route that stops serving any of the four ids takes all four rows
+# down, naming the id, because a row must never publish a rung the route
+# cannot serve. New ids enter by a deliberate, probed edit — never because a
+# catalog lists them.
+grok	grok-4.6	grok-4.6	grok-4.6	grok-4.5	grok-composer-2.5-fast	500000	xai	-xai-login	xAI
+kimi	kimi-k3	kimi-k3	kimi-k3	kimi-k3-256k	kimi-k2.7-code	262144	kimi	-kimi-login	Kimi
+sol	gpt-5.6-sol	gpt-6-astra	gpt-5.6-sol	gpt-5.6-terra	gpt-5.6-luna	372000	codex	-codex-login	Codex
+terra	gpt-5.6-terra	gpt-6-astra	gpt-5.6-sol	gpt-5.6-terra	gpt-5.6-luna	372000	codex	-codex-login	Codex
+luna	gpt-5.6-luna	gpt-6-astra	gpt-5.6-sol	gpt-5.6-terra	gpt-5.6-luna	372000	codex	-codex-login	Codex
+astra	gpt-6-astra	gpt-6-astra	gpt-5.6-sol	gpt-5.6-terra	gpt-5.6-luna	372000	codex	-codex-login	Codex

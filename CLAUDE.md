@@ -4,20 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository state
 
-There is no implementation here yet — only `README.md` and `tasks/`. The working
-mechanism lives in the private `gering/dotfiles` repository; this repo exists to
-extract it. Therefore:
+The routing core `cc-harness-agents` is implemented here in Go
+(`cmd/cc-harness-agents`, `internal/agents`, table in `share/models.tsv`). The
+wrapper, statusline, `cliproxy-auth` and companion still live in the private
+`gering/dotfiles` repository and move later.
 
-- **No build, lint or test commands exist yet.** Do not invent them. The target
-  is a single `make check` (gofmt/vet/staticcheck + `go test -race` +
-  `tests/run` contract suites against the built binary + `shellcheck -s sh` /
-  `shfmt -d` for the remaining shell); the suites come across from dotfiles.
+- **`make check` is the gate** (gofmt/vet/staticcheck, shellcheck/shfmt,
+  `go test -race`, `tests/run`, then `make build`); `make fmt` formats. The contract suite
+  in `tests/` came across from dotfiles — keep its assertions language-neutral
+  and update `tests/migration-coverage.md` when it changes.
 - `tasks/architecture.md` holds the decisions: layout, language, distribution,
   quality gate, migration order. Read it before proposing structural changes.
   `tasks/mission.md` is the extraction checklist,
   `tasks/restore-routed-sessions.md` the first feature spec.
-- Test counts quoted in `tasks/mission.md` were read off dotfiles at `f0effff`.
-  Re-count; never cite them as current.
+- Test counts for the not-yet-extracted suites in `tasks/mission.md` were read
+  off dotfiles at `f0effff`. Re-count; never cite them as current.
 
 ## External coordination
 
@@ -72,8 +73,9 @@ ones that bite during implementation:
 - **No automatic remote→local fallback.** Two proxies refreshing the same OAuth
   credentials produce `invalid_grant`. `--local` is explicit and gated.
 - **No plaintext HTTP, never `curl -k`.** TLS is what authenticates the gateway.
-- **Secrets never in argv, logs or error messages.** Headers go to `curl` on
-  stdin; diagnostics name variables, never values. Tests assert env var *names*.
+- **Secrets never in argv, logs or error messages.** Headers are built in
+  memory and set on the request, never passed to a subprocess; diagnostics name
+  variables, never values. Tests assert env var *names*.
 - **A new model is a table row, never a code path.** Provider, tiers and real
   context ceiling in one data line. A branch per model is the wrong shape.
 - **Fail closed and name the failing layer.** `403` Access, `401` proxy key,
@@ -98,6 +100,9 @@ ones that bite during implementation:
   configuration with documented defaults.
 - Secret storage is a contract ("these variables must be in the environment"),
   not a SOPS/age dependency.
+- **Code style: DRY, KISS, elegance.** The simplest form that satisfies the
+  contract — no speculative abstraction, no config knob without a real user;
+  two call sites do not justify a framework.
 - Out of scope: hosting CLIProxyAPI for anyone, and sharing subscriptions with
   third parties (provider terms forbid it — say so plainly, point to per-user
   API keys).

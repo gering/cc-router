@@ -8,7 +8,8 @@ directly by herdr.
 
 The solution must work for native Claude models as well as models routed through
 CLIProxyAPI, without requiring users to remember the original `--grok`, `--kimi`,
-`--sol`, `--terra`, `--luna`, or `--local` flags.
+`--sol`, `--terra`, `--luna`, `--astra`, or `--local` flags — or whichever
+agent rows `share/models.tsv` carries by then.
 
 ## Problem
 

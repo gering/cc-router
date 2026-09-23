@@ -1,1 +1,5 @@
 .DS_Store
+/bin/
+
+# work-system keeps a worktree-local copy of the task file
+/TASK.md
