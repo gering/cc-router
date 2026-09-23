@@ -30,31 +30,36 @@ func TestPackagedTable(t *testing.T) {
 	if got := strings.Join(names, " "); got != "grok kimi sol terra luna astra" {
 		t.Fatalf("rows = %s", got)
 	}
-	astra := rows[5]
-	if astra.Model != "gpt-6-astra" || astra.Sonnet != "gpt-6-astra" || astra.Haiku != "gpt-5.6-luna" || astra.MaxCtx != 900000 {
-		t.Fatalf("astra row = %+v", astra)
+	// One Codex ladder in all four rows (fable/opus/sonnet/haiku =
+	// Astra/Sol/Terra/Luna) at one 372000 ceiling; only the primary differs.
+	for i, primary := range []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra"} {
+		r := rows[2+i]
+		if r.Model != primary || r.Fable != "gpt-6-astra" || r.Opus != "gpt-5.6-sol" ||
+			r.Sonnet != "gpt-5.6-terra" || r.Haiku != "gpt-5.6-luna" || r.MaxCtx != 372000 {
+			t.Errorf("%s row = %+v", r.Name, r)
+		}
 	}
 }
 
 func TestParseTableRejects(t *testing.T) {
-	good := "a\tm1\tm1\tm1\tm1\t1000\tc\t-c-login\tC"
+	good := "a\tm1\tm1\tm1\tm1\tm1\t1000\tc\t-c-login\tC"
 	cases := map[string]string{
 		"crlf":            good + "\r\n",
-		"columns":         "a\tm1\tm1\tm1\tm1\t1000\tc\t-c-login",
-		"empty field":     "a\tm1\t\tm1\tm1\t1000\tc\t-c-login\tC",
-		"name":            "-a\tm1\tm1\tm1\tm1\t1000\tc\t-c-login\tC",
-		"model slash":     "a\tx/m1\tm1\tm1\tm1\t1000\tc\t-c-login\tC",
-		"ctx zero":        "a\tm1\tm1\tm1\tm1\t0\tc\t-c-login\tC",
-		"ctx leading 0":   "a\tm1\tm1\tm1\tm1\t0100\tc\t-c-login\tC",
-		"ctx huge":        "a\tm1\tm1\tm1\tm1\t10000001\tc\t-c-login\tC",
-		"ctx text":        "a\tm1\tm1\tm1\tm1\t3e5\tc\t-c-login\tC",
-		"cred glob":       "a\tm1\tm1\tm1\tm1\t1000\tc*\t-c-login\tC",
-		"login space":     "a\tm1\tm1\tm1\tm1\t1000\tc\t-c login\tC",
-		"provider ctl":    "a\tm1\tm1\tm1\tm1\t1000\tc\t-c-login\tC\x01",
-		"duplicate name":  good + "\n" + strings.Replace(good, "m1\tm1", "m2\tm1", 1),
-		"duplicate var":   good + "\n" + "A\tm2\tm2\tm2\tm2\t1000\tc\t-c-login\tC",
-		"duplicate model": good + "\n" + "b\tm1\tm1\tm1\tm1\t1000\tc\t-c-login\tC",
-		"cred route":      good + "\n" + "b\tm2\tm2\tm2\tm2\t1000\tc\t-other\tC",
+		"columns":         "a\tm1\tm1\tm1\tm1\tm1\t1000\tc\t-c-login",
+		"empty field":     "a\tm1\tm1\t\tm1\tm1\t1000\tc\t-c-login\tC",
+		"name":            "-a\tm1\tm1\tm1\tm1\tm1\t1000\tc\t-c-login\tC",
+		"model slash":     "a\tx/m1\tx/m1\tm1\tm1\tm1\t1000\tc\t-c-login\tC",
+		"ctx zero":        "a\tm1\tm1\tm1\tm1\tm1\t0\tc\t-c-login\tC",
+		"ctx leading 0":   "a\tm1\tm1\tm1\tm1\tm1\t0100\tc\t-c-login\tC",
+		"ctx huge":        "a\tm1\tm1\tm1\tm1\tm1\t10000001\tc\t-c-login\tC",
+		"ctx text":        "a\tm1\tm1\tm1\tm1\tm1\t3e5\tc\t-c-login\tC",
+		"cred glob":       "a\tm1\tm1\tm1\tm1\tm1\t1000\tc*\t-c-login\tC",
+		"login space":     "a\tm1\tm1\tm1\tm1\tm1\t1000\tc\t-c login\tC",
+		"provider ctl":    "a\tm1\tm1\tm1\tm1\tm1\t1000\tc\t-c-login\tC\x01",
+		"duplicate name":  good + "\n" + strings.Replace(good, "m1\tm1\tm1", "m2\tm1\tm1", 1),
+		"duplicate var":   good + "\n" + "A\tm2\tm2\tm2\tm2\tm2\t1000\tc\t-c-login\tC",
+		"duplicate model": good + "\n" + "b\tm1\tm1\tm1\tm1\tm1\t1000\tc\t-c-login\tC",
+		"cred route":      good + "\n" + "b\tm2\tm2\tm2\tm2\tm2\t1000\tc\t-other\tC",
 		"no rows":         "# only a comment\n",
 		"long line":       strings.Repeat("x", 2000),
 		"too many":        manyRows(51),
@@ -76,7 +81,7 @@ func TestParseTableRejects(t *testing.T) {
 func manyRows(n int) string {
 	var b strings.Builder
 	for i := range n {
-		fmt.Fprintf(&b, "a%d\tx%d\tx\tx\tx\t1000\tc\t-c-login\tC\n", i, i)
+		fmt.Fprintf(&b, "a%d\tx%d\tx\tx\tx\tx\t1000\tc\t-c-login\tC\n", i, i)
 	}
 	return b.String()
 }
@@ -87,8 +92,7 @@ func TestResolveModel(t *testing.T) {
 		{"gpt-5.6-terra", "terra", "gpt-5.6-terra"},
 		{"kimi-k3-256k", "kimi", "kimi-k3-256k"},
 		{"gpt-6-astra", "astra", "gpt-6-astra"},
-		{"gpt-5.6-luna", "luna", "gpt-5.6-luna"}, // primary outranks astra's borrowed tier
-		{"gpt-5.3-codex-spark", "sol", "gpt-5.3-codex-spark"},
+		{"gpt-5.6-luna", "luna", "gpt-5.6-luna"}, // a primary outranks the shared ladder rung
 		{"grok-4.6-build", "grok", "grok-4.6"},
 		{"grok-5.0-build", "grok", "grok-5.0"},
 		{"grok-9.9-experimental", "grok", "grok-9.9-experimental"},
@@ -104,7 +108,10 @@ func TestResolveModel(t *testing.T) {
 	// The family fallback is the only branch that echoes its input, and the
 	// result is a TSV field: an id that could not come from the table — a tab,
 	// a newline, a control byte — is refused rather than printed.
-	for _, in := range []string{"gpt-9.9-unknown", "claude-opus-5", "grok-4.6\tforged\trow", "grok-4.6\nforged", "grok-\x1b[2J", strings.Repeat("grok-4.6", 20)} {
+	// A retired or not-yet-carried codex id is refused rather than remapped
+	// onto some gpt row, so the resume path says it could not restore.
+	for _, in := range []string{"gpt-5.3-codex-spark", "gpt-6-sol", "gpt-6-luna", "gpt-6-terra",
+		"gpt-9.9-unknown", "claude-opus-5", "grok-4.6\tforged\trow", "grok-4.6\nforged", "grok-\x1b[2J", strings.Repeat("grok-4.6", 20)} {
 		if _, _, err := table.ResolveModel(in); err == nil {
 			t.Errorf("%q resolved", in)
 		}

@@ -204,7 +204,7 @@ func TestUserTableOverride(t *testing.T) {
 	env := localEnv(home, port)
 	table := filepath.Join(home, ".config", "cc-router", "models.tsv")
 	os.MkdirAll(filepath.Dir(table), 0o700)
-	os.WriteFile(table, []byte("zeta\tz-1\tz-1\tz-1\tz-1\t100000\tcodex\t-codex-login\tCodex\n"), 0o600)
+	os.WriteFile(table, []byte("zeta\tz-1\tz-1\tz-1\tz-1\tz-1\t100000\tcodex\t-codex-login\tCodex\n"), 0o600)
 
 	if r := run(t, helper(), home, env, "list", "--local"); r.stdout != "cc-harness:zeta\tz-1\tyes\t-\n" {
 		t.Fatalf("list: %+v", r)
@@ -215,7 +215,7 @@ func TestUserTableOverride(t *testing.T) {
 	if r := run(t, helper(), home, env, "exec", "--local", "zeta", "--", "sh", "-c", `echo "$ANTHROPIC_MODEL $CLAUDE_CODE_MAX_CONTEXT_TOKENS"`); r.stdout != "z-1 100000\n" {
 		t.Fatalf("exec: %+v", r)
 	}
-	os.WriteFile(table, []byte("zeta\tz-2\tz-2\tz-2\tz-2\t100000\tcodex\t-codex-login\tCodex\n"), 0o600)
+	os.WriteFile(table, []byte("zeta\tz-2\tz-2\tz-2\tz-2\tz-2\t100000\tcodex\t-codex-login\tCodex\n"), 0o600)
 	if r := run(t, helper(), home, env, "resolve-model", "z-2"); r.stdout != "zeta\tz-2\n" {
 		t.Fatalf("not re-read per invocation: %+v", r)
 	}

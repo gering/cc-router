@@ -51,6 +51,7 @@ func routedEnv(base *Env, rt routing, eff Row) *Env {
 	set = append(set,
 		[2]string{"ANTHROPIC_MODEL", eff.Model},
 		[2]string{"CLAUDE_CODE_SUBAGENT_MODEL", eff.Model},
+		[2]string{"ANTHROPIC_DEFAULT_FABLE_MODEL", eff.Fable},
 		[2]string{"ANTHROPIC_DEFAULT_OPUS_MODEL", eff.Opus},
 		[2]string{"ANTHROPIC_DEFAULT_SONNET_MODEL", eff.Sonnet},
 		[2]string{"ANTHROPIC_DEFAULT_HAIKU_MODEL", eff.Haiku},

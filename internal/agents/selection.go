@@ -37,9 +37,9 @@ var (
 
 	// Windows measured (or provider-documented) on this route. It is also what
 	// gives a PINNED tier its real ceiling: the row's max_ctx belongs to the
-	// primary only. Tiers with an undocumented window (gpt-5.3-codex-spark,
-	// kimi-k2.7-code) are deliberately absent. Ordered: ties in the predecessor
-	// search resolve to the earlier entry.
+	// primary only. Ids with an undocumented window (kimi-k2.7-code, every
+	// gpt-6 id but astra) are deliberately absent. Ordered: ties in the
+	// predecessor search resolve to the earlier entry.
 	verifiedContext = []verifiedWindow{
 		{"grok-4.3", 500000},
 		{"grok-4.5", 500000},
@@ -112,7 +112,7 @@ func (c *Catalog) has(model string) bool {
 func (c *Catalog) missing(r Row) []string {
 	var out []string
 	seen := map[string]bool{}
-	for _, m := range []string{r.Model, r.Opus, r.Sonnet, r.Haiku} {
+	for _, m := range r.models() {
 		if seen[m] {
 			continue
 		}
@@ -300,8 +300,14 @@ func (s *selector) Resolve(r Row) Selection {
 		default:
 			// One reproducible model: every ladder-tracking tier collapses
 			// onto it, with the ceiling of THAT model — sharing a row is not
-			// sharing a window.
+			// sharing a window. It is never RAISED above the row's: the rungs
+			// that do not track the ladder stay reachable with /model, and the
+			// row ceiling is what they were sized against.
 			ctx, note := s.ceiling(r.Name, override)
+			if known, _, ok := s.modelContext(r.Name, override); ok && known > r.MaxCtx {
+				ctx = r.MaxCtx
+				note = fmt.Sprintf("; context window capped at the row ceiling %d (its own window %d exceeds a reachable rung)", r.MaxCtx, known)
+			}
 			sel = Selection{Model: override, Previous: override, MaxCtx: ctx,
 				Note: fmt.Sprintf("pinned to %s via %s%s", override, variable, note)}
 		}
@@ -345,7 +351,7 @@ func (s *selector) Resolve(r Row) Selection {
 // the TABLE pointed it at one of the two rungs; anything else stays put.
 func (sel Selection) Apply(r Row) Row {
 	pinned, pinnedPrev := r.Model, r.Sonnet
-	for _, tier := range []*string{&r.Opus, &r.Sonnet, &r.Haiku} {
+	for _, tier := range []*string{&r.Fable, &r.Opus, &r.Sonnet, &r.Haiku} {
 		switch *tier {
 		case pinned:
 			*tier = sel.Model

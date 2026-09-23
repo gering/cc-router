@@ -45,12 +45,12 @@ func TestCandidates(t *testing.T) {
 
 func TestResolveOverrideAndLadder(t *testing.T) {
 	rows := packagedRows(t)
-	grok, astra := rows[0], rows[5]
+	grok, sol, astra := rows[0], rows[2], rows[5]
 	catalog := &Catalog{State: catalogValid, IDs: strings.Fields("grok-4.5 grok-4.6 grok-4.8 grok-composer-2.5-fast"), Context: map[string]int{}}
 
 	sel := (&selector{env: NewEnv(nil), cat: catalog}).Resolve(grok)
 	eff := sel.Apply(grok)
-	if eff.Model != "grok-4.8" || eff.Opus != "grok-4.8" || eff.Sonnet != "grok-4.6" || eff.Haiku != "grok-composer-2.5-fast" || eff.MaxCtx != 500000 {
+	if eff.Model != "grok-4.8" || eff.Fable != "grok-4.8" || eff.Opus != "grok-4.8" || eff.Sonnet != "grok-4.6" || eff.Haiku != "grok-composer-2.5-fast" || eff.MaxCtx != 500000 {
 		t.Fatalf("ladder = %+v", eff)
 	}
 	if !strings.Contains(sel.Note, "ASSUMED from predecessor grok-4.7") {
@@ -67,6 +67,14 @@ func TestResolveOverrideAndLadder(t *testing.T) {
 	other := (&selector{env: NewEnv([]string{"CC_HARNESS_MODEL_GROK=grok-composer-2.5-fast"}), cat: &Catalog{}}).Resolve(grok)
 	if got := other.Apply(grok); got.Model != "grok-composer-2.5-fast" || got.Sonnet != "grok-composer-2.5-fast" || got.MaxCtx != 200000 {
 		t.Fatalf("override = %+v", got)
+	}
+
+	// An override never RAISES the ceiling: astra's own 900000 over sol's
+	// untouched Luna rung would overflow upstream one /model away.
+	capped := (&selector{env: NewEnv([]string{"CC_HARNESS_MODEL_SOL=gpt-6-astra"}), cat: &Catalog{}}).Resolve(sol)
+	if got := capped.Apply(sol); got.Model != "gpt-6-astra" || got.Haiku != "gpt-5.6-luna" || got.MaxCtx != 372000 ||
+		!strings.Contains(capped.Note, "capped at the row ceiling 372000 (its own window 900000") {
+		t.Fatalf("capped override = %+v %q", got, capped.Note)
 	}
 
 	// An override is exported as a literal model id, so it is held to the same

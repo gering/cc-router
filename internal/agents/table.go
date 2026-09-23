@@ -8,19 +8,21 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
 
-// Row is one foreign agent: the nine columns of models.tsv, in file order.
+// Row is one foreign agent: the ten columns of models.tsv, in file order.
 // A NEW agent is a new row, never a new code path.
 type Row struct {
 	Name     string // agent id; exposed as cc-harness:<name>
 	Model    string // ANTHROPIC_MODEL (last-known when the agent discovers)
+	Fable    string // ANTHROPIC_DEFAULT_FABLE_MODEL, the picker tier above opus
 	Opus     string // ANTHROPIC_DEFAULT_OPUS_MODEL
 	Sonnet   string // ANTHROPIC_DEFAULT_SONNET_MODEL
 	Haiku    string // ANTHROPIC_DEFAULT_HAIKU_MODEL
-	MaxCtx   int    // CLAUDE_CODE_MAX_CONTEXT_TOKENS: the primary's REAL window
+	MaxCtx   int    // CLAUDE_CODE_MAX_CONTEXT_TOKENS: sized for every reachable rung
 	Cred     string // credential file prefix in the proxy dir (<cred>-*.json)
 	Login    string // cliproxyapi login flag suggested when credentials are missing
 	Provider string // human-readable provider label
@@ -28,7 +30,7 @@ type Row struct {
 
 const (
 	agentNamespace = "cc-harness"
-	tableColumns   = 9
+	tableColumns   = 10
 	tableMaxRows   = 50 // work-system admits at most 50 agent rows
 	tableMaxLine   = 1024
 	maxContext     = 10000000
@@ -160,16 +162,16 @@ func ParseTable(data []byte) ([]Row, error) {
 				return nil, at("field %d is empty", i+1)
 			}
 		}
-		r := Row{Name: f[0], Model: f[1], Opus: f[2], Sonnet: f[3], Haiku: f[4], Cred: f[6], Login: f[7], Provider: f[8]}
+		r := Row{Name: f[0], Model: f[1], Fable: f[2], Opus: f[3], Sonnet: f[4], Haiku: f[5], Cred: f[7], Login: f[8], Provider: f[9]}
 		if !agentNameRe.MatchString(r.Name) {
 			return nil, at("invalid agent name")
 		}
-		for _, m := range []string{r.Model, r.Opus, r.Sonnet, r.Haiku} {
+		for _, m := range r.models() {
 			if !modelIDRe.MatchString(m) {
 				return nil, at("invalid model id")
 			}
 		}
-		ctx, ok := boundedInt(f[5], maxContext)
+		ctx, ok := boundedInt(f[6], maxContext)
 		if !ok {
 			return nil, at("max_ctx must be an integer between 1 and %d", maxContext)
 		}
@@ -209,6 +211,12 @@ func ParseTable(data []byte) ([]Row, error) {
 	}
 	return rows, nil
 }
+
+// tiers are the picker slots a user can reach with /model, top first; models
+// adds the primary. Every place that exports, validates or matches the ladder
+// reads it from here, so a later slot cannot be half-wired.
+func (r Row) tiers() []string  { return []string{r.Fable, r.Opus, r.Sonnet, r.Haiku} }
+func (r Row) models() []string { return append([]string{r.Model}, r.tiers()...) }
 
 // Find returns the row for a bare or namespaced agent name.
 func (t *Table) Find(name string) (Row, bool) {
@@ -254,7 +262,7 @@ func (t *Table) ResolveModel(wanted string) (agent, model string, err error) {
 	}
 	hit, hitRoute := "", ""
 	for _, r := range t.Rows {
-		if wanted != r.Opus && wanted != r.Sonnet && wanted != r.Haiku {
+		if !slices.Contains(r.tiers(), wanted) {
 			continue
 		}
 		route := r.Provider + "|" + r.Cred + "|" + r.Login

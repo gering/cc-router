@@ -15,8 +15,9 @@ func TestRoutedEnv(t *testing.T) {
 		"PATH": "/bin", "ANTHROPIC_BASE_URL": "http://127.0.0.1:8317", "ANTHROPIC_AUTH_TOKEN": "tok",
 		"ANTHROPIC_CUSTOM_HEADERS": "X-A: 1", "CLIPROXY_ROUTE": "local", "NO_PROXY": "127.0.0.1,localhost",
 		"no_proxy": "127.0.0.1,localhost", "ANTHROPIC_MODEL": "gpt-6-astra", "CLAUDE_CODE_SUBAGENT_MODEL": "gpt-6-astra",
-		"ANTHROPIC_DEFAULT_OPUS_MODEL": "gpt-6-astra", "ANTHROPIC_DEFAULT_SONNET_MODEL": "gpt-6-astra",
-		"ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-5.6-luna", "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "900000",
+		"ANTHROPIC_DEFAULT_FABLE_MODEL": "gpt-6-astra", "ANTHROPIC_DEFAULT_OPUS_MODEL": "gpt-5.6-sol",
+		"ANTHROPIC_DEFAULT_SONNET_MODEL": "gpt-5.6-terra", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-5.6-luna",
+		"CLAUDE_CODE_MAX_CONTEXT_TOKENS": "372000",
 	}
 	for _, s := range providerSelectors {
 		want[s] = ""

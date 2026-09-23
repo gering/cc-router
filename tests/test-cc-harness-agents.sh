@@ -239,6 +239,7 @@ printf 'AUTH=%s\n' "${ANTHROPIC_AUTH_TOKEN-}"
 printf 'ROUTE=%s\n' "${CLIPROXY_ROUTE-}"
 printf 'MODEL=%s\n' "${ANTHROPIC_MODEL-}"
 printf 'SUBAGENT=%s\n' "${CLAUDE_CODE_SUBAGENT_MODEL-}"
+printf 'FABLE=%s\n' "${ANTHROPIC_DEFAULT_FABLE_MODEL-}"
 printf 'OPUS=%s\n' "${ANTHROPIC_DEFAULT_OPUS_MODEL-}"
 printf 'SONNET=%s\n' "${ANTHROPIC_DEFAULT_SONNET_MODEL-}"
 printf 'HAIKU=%s\n' "${ANTHROPIC_DEFAULT_HAIKU_MODEL-}"
@@ -271,8 +272,10 @@ catalog_of() {
 # The full catalog every case starts from, held as an ID LIST rather than a JSON
 # literal. The variants below are a FILTER over this list, so a new id is added
 # in exactly one place.
+# Mirrors the live route's text ids (2026-09-22): no gpt-5.3-codex-spark any
+# more, and gpt-5.5/codex-auto-review ride along as ids no row uses.
 ALL_MODEL_IDS=(
-  gpt-6-astra gpt-5.3-codex-spark
+  gpt-6-astra gpt-5.5 codex-auto-review
   grok-4.6 grok-composer-2.5-fast
   kimi-k3 kimi-k3-256k kimi-k2.7-code
   gpt-5.6-sol gpt-5.6-terra gpt-5.6-luna
@@ -310,10 +313,10 @@ catalog_without() {
 # Remote list uses the profile file, one probe, and classifies every row from it.
 setup_case
 write_remote_profile TEST
-REMOTE_WITHOUT_LUNA="$(catalog_without gpt-5.6-luna)"
+REMOTE_WITHOUT_KIMI_TIER="$(catalog_without kimi-k2.7-code)"
 run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
   FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" \
-  FAKE_CURL_BODY="$REMOTE_WITHOUT_LUNA" \
+  FAKE_CURL_BODY="$REMOTE_WITHOUT_KIMI_TIER" \
   CLIPROXY_API_KEY_TEST=remote-api-secret \
   CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret \
   CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \
@@ -321,7 +324,7 @@ run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" 
 assert_eq 0 "$RC" "remote list succeeds"
 assert_eq 1 "$(curl_calls)" "remote list probes exactly once"
 assert_contains "$OUT" $'cc-harness:sol\tgpt-5.6-sol\tyes\t-' "remote list marks a returned model available"
-assert_contains "$OUT" $'cc-harness:luna\tgpt-5.6-luna\tno\tremote models missing: gpt-5.6-luna' "remote list marks a missing model unavailable"
+assert_contains "$OUT" $'cc-harness:kimi\tkimi-k3\tno\tremote models missing: kimi-k2.7-code' "remote list marks a missing model unavailable"
 assert_eq "$EXPECTED_ROWS" "$(printf '%s\n' "$OUT" | grep -c '^cc-harness:')" "remote list emits every table row"
 assert_eq "$EXPECTED_ROWS" "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" "a captured listing carries no header line"
 # The header is a terminal-only reading aid: forcing it on must not disturb the
@@ -330,7 +333,7 @@ setup_case
 write_remote_profile TEST
 run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
   FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" \
-  FAKE_CURL_BODY="$REMOTE_WITHOUT_LUNA" \
+  FAKE_CURL_BODY="$REMOTE_WITHOUT_KIMI_TIER" \
   CLIPROXY_API_KEY_TEST=remote-api-secret \
   CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret \
   CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \
@@ -366,7 +369,7 @@ setup_case
 write_remote_profile TEST
 run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
   FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" \
-  FAKE_CURL_BODY="$REMOTE_WITHOUT_LUNA" \
+  FAKE_CURL_BODY="$REMOTE_WITHOUT_KIMI_TIER" \
   CLIPROXY_API_KEY_TEST=remote-api-secret \
   CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret \
   CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \
@@ -627,7 +630,7 @@ assert_secret_safe "$ERR" "missing-model stderr hides secrets"
 
 setup_case
 write_remote_profile TEST
-MISSING_HAIKU="$(catalog_without gpt-5.3-codex-spark)"
+MISSING_HAIKU="$(catalog_without gpt-5.6-luna)"
 run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
   FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" FAKE_CURL_BODY="$MISSING_HAIKU" \
   CLIPROXY_API_KEY_TEST=remote-api-secret \
@@ -635,15 +638,20 @@ run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" 
   CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \
   "$HELPER" list
 assert_eq 0 "$RC" "remote list completes when a tier model is missing"
-assert_contains "$OUT" $'cc-harness:sol\tgpt-5.6-sol\tno\tremote models missing: gpt-5.3-codex-spark' "remote list validates exported tier models"
+# gpt-5.6-luna is the haiku rung of ALL four codex rows (and luna's primary),
+# so its absence takes every codex row down, each naming the same id.
+for agent_model in sol:gpt-5.6-sol terra:gpt-5.6-terra luna:gpt-5.6-luna astra:gpt-6-astra; do
+  assert_contains "$OUT" "cc-harness:${agent_model%%:*}"$'\t'"${agent_model#*:}"$'\tno\tremote models missing: gpt-5.6-luna' "remote list validates the shared haiku rung (${agent_model%%:*})"
+done
 assert_contains "$OUT" $'cc-harness:grok\tgrok-4.6\tyes\t-' "missing Codex tier does not affect unrelated rows"
 assert_secret_safe "$ERR" "missing-tier stderr hides secrets"
 
 # --- astra --------------------------------------------------------------------
 #
-# astra is the newest codex-family row and the first that does NOT share the
-# sol/terra/luna tier set, so it needs its own list/exec/absence coverage: a
-# fixture that satisfies those three says nothing about this row.
+# All four codex rows share ONE ladder (fable=Astra, opus=Sol, sonnet=Terra,
+# haiku=Luna) at one 372000 ceiling and differ only in the primary. astra is the
+# row whose primary has the biggest real window (900000), so it is where an
+# oversized ceiling would come from — the case the shared ceiling prevents.
 
 setup_case
 write_remote_profile TEST
@@ -656,27 +664,67 @@ run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" 
 assert_eq 0 "$RC" "remote list succeeds with a full catalog"
 assert_contains "$OUT" $'cc-harness:astra\tgpt-6-astra\tyes\t-' "a complete catalog makes astra available"
 
-# The whole ladder has to reach the environment: the row's own primary, its own
-# haiku rung, and the measured ceiling — a wrong ceiling is invisible in-session
-# until auto-compact fires at the wrong point.
+# The whole ladder has to reach the environment, all four picker tiers included,
+# identical in every codex row, and the ceiling has to be the smallest rung's —
+# CLAUDE_CODE_MAX_CONTEXT_TOKENS is one number per session and survives /model,
+# so astra's own 900000 over a 372000 Luna rung is a hard upstream overflow that
+# auto-compact never prevents. Against the live-shaped catalog this is also the
+# `claude -c --sol` failure ("remote models missing: gpt-5.3-codex-spark") as a
+# regression case.
+for agent_model in astra:gpt-6-astra sol:gpt-5.6-sol terra:gpt-5.6-terra luna:gpt-5.6-luna; do
+  agent="${agent_model%%:*}"
+  primary="${agent_model#*:}"
+  setup_case
+  write_remote_profile TEST
+  run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
+    FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" FAKE_CURL_BODY="$ALL_MODELS" \
+    CLIPROXY_API_KEY_TEST=remote-api-secret \
+    CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret \
+    CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \
+    "$HELPER" exec "$agent" -- "$TARGET"
+  assert_eq 0 "$RC" "$agent execs against a catalog without spark"
+  assert_contains "$OUT" "MODEL=$primary" "$agent exports its own primary"
+  assert_contains "$OUT" $'FABLE=gpt-6-astra\nOPUS=gpt-5.6-sol\nSONNET=gpt-5.6-terra\nHAIKU=gpt-5.6-luna' "$agent exports the shared Astra/Sol/Terra/Luna ladder"
+  assert_contains "$OUT" 'CONTEXT=372000' "$agent exports the smallest rung's window"
+  assert_eq '' "$ERR" "$agent execs without a note (nothing selected, nothing assumed)"
+done
+
+# The catalog native Codex already shows (gpt-6-sol, gpt-6-luna, no gpt-6-terra)
+# plus variant/hostile look-alikes. Codex has no DISCOVERY row, so none of it may
+# move a rung: new ids enter the table by a deliberate, probed edit only, never
+# because a catalog listed them. Automatic newest-per-family selection belongs
+# to cc-router's Go core.
 setup_case
 write_remote_profile TEST
+GPT6_CATALOG="$(catalog_of "${ALL_MODEL_IDS[@]}" gpt-6-sol gpt-6-luna gpt-6-sol-preview gpt-6.1-astra gpt-7-sol 'gpt-6-sol|999999')"
 run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
-  FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" FAKE_CURL_BODY="$ALL_MODELS" \
+  FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" FAKE_CURL_BODY="$GPT6_CATALOG" \
+  CLIPROXY_API_KEY_TEST=remote-api-secret \
+  CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret \
+  CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \
+  "$HELPER" exec sol -- "$TARGET"
+assert_eq 0 "$RC" "a catalog with gpt-6 sol/luna and variants still execs sol"
+assert_contains "$OUT" $'MODEL=gpt-5.6-sol\nSUBAGENT=gpt-5.6-sol\nFABLE=gpt-6-astra\nOPUS=gpt-5.6-sol\nSONNET=gpt-5.6-terra\nHAIKU=gpt-5.6-luna' "catalog-only gpt-6 ids move no codex rung"
+assert_contains "$OUT" 'CONTEXT=372000' "catalog-only gpt-6 ids leave the ceiling alone"
+
+# A catalog missing a whole family: there is no gpt-6-terra, and if the route
+# ever drops gpt-5.6-terra too, the Terra rung has nothing to stand on — every
+# codex row goes unavailable rather than skipping the rung or borrowing Astra.
+setup_case
+write_remote_profile TEST
+NO_TERRA="$(catalog_without gpt-5.6-terra)"
+run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
+  FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" FAKE_CURL_BODY="$NO_TERRA" \
   CLIPROXY_API_KEY_TEST=remote-api-secret \
   CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret \
   CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \
   "$HELPER" exec astra -- "$TARGET"
-assert_eq 0 "$RC" "remote exec runs the astra row"
-assert_contains "$OUT" 'MODEL=gpt-6-astra' "astra exec exports its own primary"
-assert_contains "$OUT" 'OPUS=gpt-6-astra' "astra opus rung is the primary itself"
-assert_contains "$OUT" 'SONNET=gpt-6-astra' "astra sonnet rung mirrors the primary, so it holds the announced window"
-assert_contains "$OUT" 'HAIKU=gpt-5.6-luna' "astra haiku rung is the verified 5.6 model, not the unverified spark id"
-assert_contains "$OUT" 'CONTEXT=900000' "astra exports the measured context ceiling"
-assert_secret_safe "$ERR" "astra exec stderr hides secrets"
+assert_eq 1 "$RC" "a missing Terra family makes even astra unavailable"
+assert_contains "$ERR" 'astra unavailable — remote models missing: gpt-5.6-terra' "the missing family is named"
 
 # Catalog absence, both columns. A vanished id is exactly how the codex rows went
-# unavailable once (gpt-5.4-mini), so astra's own ids get the same check.
+# unavailable twice (gpt-5.4-mini, then gpt-5.3-codex-spark), so astra gets the
+# same check.
 setup_case
 write_remote_profile TEST
 MISSING_ASTRA="$(catalog_without gpt-6-astra)"
@@ -687,23 +735,9 @@ run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" 
   CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \
   "$HELPER" list
 assert_eq 0 "$RC" "remote list completes when astra is absent from the catalog"
-assert_contains "$OUT" $'cc-harness:astra\tgpt-6-astra\tno\tremote models missing: gpt-6-astra' "an absent astra primary marks only its own row unavailable"
+assert_contains "$OUT" $'cc-harness:astra\tgpt-6-astra\tno\tremote models missing: gpt-6-astra' "an absent astra primary marks its row unavailable"
+assert_contains "$OUT" $'cc-harness:sol\tgpt-5.6-sol\tno\tremote models missing: gpt-6-astra' "an absent astra takes the sol row's fable rung with it"
 assert_contains "$OUT" $'cc-harness:grok\tgrok-4.6\tyes\t-' "an absent astra leaves unrelated rows alone"
-
-setup_case
-write_remote_profile TEST
-run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
-  FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" FAKE_CURL_BODY="$REMOTE_WITHOUT_LUNA" \
-  CLIPROXY_API_KEY_TEST=remote-api-secret \
-  CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret \
-  CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \
-  "$HELPER" list
-assert_eq 0 "$RC" "remote list completes when the astra haiku rung is absent"
-# gpt-5.6-luna is astra's haiku rung AND the luna row's primary, so losing it has
-# to take out both rows, each naming the id from its own perspective.
-assert_contains "$OUT" $'cc-harness:astra\tgpt-6-astra\tno\tremote models missing: gpt-5.6-luna' "astra validates its own exported tier"
-assert_contains "$OUT" $'cc-harness:luna\tgpt-5.6-luna\tno\tremote models missing: gpt-5.6-luna' "the shared id takes the luna row down with it"
-assert_contains "$OUT" $'cc-harness:sol\tgpt-5.6-sol\tyes\t-' "the astra tier gap does not touch the sol row"
 
 # Invalid profile syntax and invalid secret bytes are rejected before execution.
 setup_case
@@ -1313,8 +1347,8 @@ assert_not_contains "$ERR" 'pinned to kimi-k3' "pinning the primary stays quiet"
 # …and it must stay a NO-OP, not just a quiet one. The resume path exports
 # CC_HARNESS_MODEL_<AGENT>=<the row's own primary>, which used to collapse every
 # tier tracking the previous rung onto that primary: a resumed astra ran its
-# haiku rung on gpt-6-astra where a fresh launch runs gpt-5.6-luna, silently and
-# at the primary's price. Assert the WHOLE ladder, not only the note.
+# sonnet rung on the primary where a fresh launch runs another model, silently
+# and at the primary's price. Assert the WHOLE ladder, not only the note.
 setup_case
 write_local_credentials
 run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
@@ -1323,9 +1357,8 @@ run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" 
   "$HELPER" exec --local astra -- "$TARGET"
 assert_eq 0 "$RC" "pinning the astra primary execs"
 assert_contains "$OUT" 'MODEL=gpt-6-astra' "the resumed primary is the pinned one"
-assert_contains "$OUT" 'SONNET=gpt-6-astra' "pinning the primary leaves the sonnet rung on the table value"
-assert_contains "$OUT" 'HAIKU=gpt-5.6-luna' "pinning the primary leaves the haiku rung alone"
-assert_contains "$OUT" 'CONTEXT=900000' "pinning the primary keeps the row ceiling"
+assert_contains "$OUT" $'FABLE=gpt-6-astra\nOPUS=gpt-5.6-sol\nSONNET=gpt-5.6-terra\nHAIKU=gpt-5.6-luna' "pinning the primary leaves every rung on the table value"
+assert_contains "$OUT" 'CONTEXT=372000' "pinning the primary keeps the row ceiling"
 
 # The collapse itself is still correct for a DIFFERENT model: an override names
 # one reproducible model, so the rung that tracks the ladder follows it there.
@@ -1337,7 +1370,11 @@ run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" 
   "$HELPER" exec --local astra -- "$TARGET"
 assert_contains "$OUT" 'MODEL=gpt-5.6-sol' "an override to another model still wins"
 assert_contains "$OUT" 'SONNET=gpt-5.6-sol' "the tracking rung collapses onto a real override"
-assert_contains "$OUT" 'HAIKU=gpt-5.6-luna' "a rung the override does not name is never rewritten"
+assert_contains "$OUT" 'FABLE=gpt-5.6-sol' "a rung equal to the replaced primary follows the override"
+# Rungs that equal neither the replaced primary nor its previous rung (here
+# astra's haiku, Luna) stay; the fable/opus rungs equal to the primary follow.
+assert_contains "$OUT" 'HAIKU=gpt-5.6-luna' "a rung pointed elsewhere is never rewritten"
+assert_contains "$OUT" 'CONTEXT=372000' "the override looks its own window up"
 
 # Sharing a row is NOT sharing a window. grok-composer-2.5-fast sits in the
 # 500000 grok row but only holds 200k, so handing it the row ceiling would push
@@ -1351,15 +1388,35 @@ run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" 
   "$HELPER" exec --local grok -- "$TARGET"
 assert_contains "$OUT" 'CONTEXT=200000' "a smaller tier never inherits the row ceiling"
 
-# A tier whose real window is undocumented stays conservative AND says so.
+# A model whose real window is unmeasured stays conservative AND says so. The
+# gpt-6 ids other than astra are exactly that: the registry's 272000 is not a
+# window (it says the same of astra, which serves 900000), and Grok's
+# predecessor assumption is deliberately NOT transplanted to GPT families.
+for unmeasured in gpt-6-sol gpt-6-luna; do
+  setup_case
+  write_local_credentials
+  run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
+    FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" \
+    CC_HARNESS_MODEL_SOL="$unmeasured" \
+    "$HELPER" exec --local sol -- "$TARGET"
+  assert_contains "$OUT" 'CONTEXT=200000' "$unmeasured gets the conservative ceiling"
+  assert_contains "$ERR" 'context window unknown' "and its unknown ceiling is stated"
+  assert_not_contains "$ERR" 'ASSUMED' "and nothing is assumed from a gpt-5.6 predecessor"
+done
+
+# An override never RAISES the ceiling: it moves only the tracking rungs, and the
+# untouched Luna rung (372000) stays one /model away. Astra's own 900000 would
+# be the overflow the shared codex ceiling exists to prevent — capped, and said.
 setup_case
 write_local_credentials
 run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
   FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" \
-  CC_HARNESS_MODEL_SOL=gpt-5.3-codex-spark \
+  CC_HARNESS_MODEL_SOL=gpt-6-astra \
   "$HELPER" exec --local sol -- "$TARGET"
-assert_contains "$OUT" 'CONTEXT=200000' "an undocumented tier gets the conservative ceiling"
-assert_contains "$ERR" 'context window unknown' "and the unknown ceiling is stated"
+assert_contains "$OUT" 'MODEL=gpt-6-astra' "an explicit astra override still selects astra"
+assert_contains "$OUT" 'HAIKU=gpt-5.6-luna' "and leaves the smaller Luna rung reachable"
+assert_contains "$OUT" 'CONTEXT=372000' "so its ceiling is capped at the row's, not astra's 900000"
+assert_contains "$ERR" 'capped at the row ceiling 372000' "and the cap is stated"
 
 # --- resolve-model: the machine-readable contract the resume helper reads -----
 # It replaced regex-scraping $AGENTS out of this file's source, so these cases
@@ -1373,24 +1430,45 @@ setup_case
 run_capture "$HELPER" resolve-model kimi-k3-256k
 assert_contains "$OUT" $'kimi\tkimi-k3-256k' "resolve-model resolves a tier model"
 
-# astra owns its primary AND its sonnet rung (both gpt-6-astra); only the haiku
-# rung, gpt-5.6-luna, is borrowed — and it is luna's primary. An exact primary
-# match outranks a tier match, so borrowing must not start stealing that id, and
-# that same rule decides which row a session ending on the rung resumes into.
+# Every codex rung is also some codex row's primary, and an exact primary match
+# outranks a tier match. So a session that last answered on a rung resumes into
+# the row whose primary that rung is — the same ladder and ceiling either way.
 setup_case
 run_capture "$HELPER" resolve-model gpt-6-astra
 assert_eq 0 "$RC" "resolve-model accepts the astra primary"
 assert_eq $'astra\tgpt-6-astra' "$OUT" "resolve-model maps the astra primary to its row"
 run_capture "$HELPER" resolve-model gpt-5.6-luna
-assert_eq $'luna\tgpt-5.6-luna' "$OUT" "the borrowed haiku rung still resolves to luna"
+assert_eq $'luna\tgpt-5.6-luna' "$OUT" "the shared haiku rung resolves to luna's row"
 
-# gpt-5.3-codex-spark is the haiku rung of sol, terra AND luna at once. A tier id
-# several rows share must still resolve — to one of them, deterministically —
-# rather than being refused the way an ambiguous FAMILY prefix is.
+# A RETIRED id must not be quietly remapped: a session recorded on
+# gpt-5.3-codex-spark or on a gpt-6 id no row carries yet is refused, so the
+# resume path says it could not restore instead of pretending it did.
+for gone in gpt-5.3-codex-spark gpt-6-sol gpt-6-luna gpt-6-terra; do
+  setup_case
+  run_capture "$HELPER" resolve-model "$gone"
+  assert_eq 1 "$RC" "resolve-model refuses $gone rather than remapping it"
+done
+
+# The shared-TIER pass (a rung several rows carry that is no row's primary) has
+# no live instance any more — every codex rung is also a primary — but the code
+# path stays, so it is driven through a user table (upstream rewrote a copy of
+# the script; the table is data here): two rows on the same route share
+# `shared-mini` (resolves), and a third row on a DIFFERENT route claiming
+# `split-mini` too makes that id ambiguous (refused).
 setup_case
-run_capture "$HELPER" resolve-model gpt-5.3-codex-spark
-assert_eq 0 "$RC" "a tier shared by three rows still resolves"
-assert_contains "$OUT" 'gpt-5.3-codex-spark' "the shared tier keeps its own id in the answer"
+mkdir -p "$CASE_HOME/.config/cc-router"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  alpha alpha-1 alpha-1 alpha-1 alpha-1 shared-mini 372000 codex -codex-login Codex \
+  beta beta-1 beta-1 beta-1 beta-1 shared-mini 372000 codex -codex-login Codex \
+  gamma gamma-1 gamma-1 gamma-1 split-mini gamma-1 372000 codex -codex-login Codex \
+  delta delta-1 delta-1 delta-1 split-mini delta-1 500000 xai -xai-login xAI \
+  > "$CASE_HOME/.config/cc-router/models.tsv"
+run_capture env -i HOME="$CASE_HOME" PATH="/usr/bin:/bin" "$HELPER" resolve-model shared-mini
+assert_eq 0 "$RC" "a non-primary rung shared by same-route rows resolves"
+assert_eq $'alpha\tshared-mini' "$OUT" "to the first claimant, keeping the tier id"
+run_capture env -i HOME="$CASE_HOME" PATH="/usr/bin:/bin" "$HELPER" resolve-model split-mini
+assert_eq 1 "$RC" "a rung claimed by rows on different routes is refused"
+assert_contains "$ERR" 'route differently' "and the refusal says why"
 
 setup_case
 run_capture "$HELPER" resolve-model grok-4.6-build
