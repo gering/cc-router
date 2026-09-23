@@ -85,7 +85,8 @@ architecture doc was written).
 
 ## Progress (2026-09-22)
 
-- **Baseline:** dotfiles `f429346` (includes `7d31d78`, the newest-offered
+- **Baseline:** dotfiles `de7a736` (#44, the Codex ladder without Spark;
+  first extracted at `f429346`, which includes `7d31d78`, the newest-offered
   Grok selection). `share/models.tsv` is byte-for-byte the bash `AGENTS`
   table at that commit. Re-diff before the cutover.
 - **Port:** `cmd/cc-harness-agents` + `internal/agents` (Go 1.27). Runtime
@@ -162,3 +163,13 @@ The split agreed with the manager:
   post-cutover scope**, explicitly outside this port: cc-router PR #5, commit
   `a7d3825` (`tasks/model-onboarding.md`). Do not pull it forward, however
   tempting it looks while porting the interim fix.
+
+**Synced 2026-09-23:** dotfiles #44 merged as `de7a736` and is ported onto PR #4
+as separate commits — the `fable` column (`ANTHROPIC_DEFAULT_FABLE_MODEL`), one
+Codex ladder in all four codex rows at a shared 372000 ceiling, the override
+ceiling capped at the row's, and the upstream tests (420 assertions;
+`tests/migration-coverage.md` re-mapped, 337 sites). Resume semantics are
+unchanged; the "vanished exact model" question stays with Robert. Next: a
+dotfiles task (`codex-gpt6-sol-luna`) is expected to add GPT-6 Sol/Luna rows
+before the cutover — re-diff dotfiles HEAD once more when its merge SHA
+arrives; that is the last sync before the freeze.

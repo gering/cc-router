@@ -77,8 +77,8 @@ Secrets are never configuration — they must be in the environment:
 manager, SOPS, a keychain) is yours to choose.
 
 **Models.** `share/models.tsv` is the agent table: one tab-separated row per
-agent (name, model, opus/sonnet/haiku tiers, real context ceiling, credential
-prefix, login flag, provider). `~/.config/cc-router/models.tsv`, when present,
+agent (name, model, fable/opus/sonnet/haiku tiers, the session's context
+ceiling, credential prefix, login flag, provider). `~/.config/cc-router/models.tsv`, when present,
 **replaces** it entirely — copy the packaged file and edit it; new packaged
 rows then need merging by hand. An invalid table is refused, never partially
 used. Grok discovery and the verified context windows are policy in the code,
