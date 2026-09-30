@@ -37,9 +37,11 @@ var (
 
 	// Windows measured (or provider-documented) on this route. It is also what
 	// gives a PINNED tier its real ceiling: the row's max_ctx belongs to the
-	// primary only. Ids with an undocumented window (kimi-k2.7-code, every
-	// gpt-6 id but astra) are deliberately absent. Ordered: ties in the
-	// predecessor search resolve to the earlier entry.
+	// primary only. Ids with an undocumented window (kimi-k2.7-code, gpt-5.5)
+	// are deliberately absent. gpt-6-sol/luna carry their FLOOR-TESTED session
+	// budget, not a measured maximum; the superseded gpt-5.6-sol/luna stay so a
+	// retained resume pin keeps its window. Ordered: ties in the predecessor
+	// search resolve to the earlier entry.
 	verifiedContext = []verifiedWindow{
 		{"grok-4.3", 500000},
 		{"grok-4.5", 500000},
@@ -51,7 +53,22 @@ var (
 		{"gpt-5.6-sol", 372000},
 		{"gpt-5.6-terra", 372000},
 		{"gpt-5.6-luna", 372000},
+		{"gpt-6-sol", 372000},
+		{"gpt-6-luna", 372000},
 		{"gpt-6-astra", 900000},
+	}
+
+	// Ids that left the table while the route still serves them, mapped to
+	// their former row. Without this resolve-model would refuse them and a
+	// session recorded on gpt-5.6-sol could not resume on its own model. The
+	// resume pin restores the PRIMARY only: the rungs equal to it follow, every
+	// other rung is today's table value (a transcript records the model that
+	// answered, not the ladder it ran under). A route that stops serving one
+	// reports the row unavailable, never a silent remap; drop the entry then,
+	// and resume refuses it like any retired id.
+	retainedModels = map[string]string{
+		"gpt-5.6-sol":  "sol",
+		"gpt-5.6-luna": "luna",
 	}
 )
 
@@ -303,12 +320,19 @@ func (s *selector) Resolve(r Row) Selection {
 			// sharing a window. It is never RAISED above the row's: the rungs
 			// that do not track the ladder stay reachable with /model, and the
 			// row ceiling is what they were sized against.
+			// A RETAINED id on its former row resumes that row's old primary,
+			// not one model everywhere: the tracking rung keeps the table's
+			// value, since before the rung swap this pin WAS the primary.
+			previous := override
+			if retainedModels[override] == r.Name {
+				previous = r.Sonnet
+			}
 			ctx, note := s.ceiling(r.Name, override)
 			if known, _, ok := s.modelContext(r.Name, override); ok && known > r.MaxCtx {
 				ctx = r.MaxCtx
 				note = fmt.Sprintf("; context window capped at the row ceiling %d (its own window %d exceeds a reachable rung)", r.MaxCtx, known)
 			}
-			sel = Selection{Model: override, Previous: override, MaxCtx: ctx,
+			sel = Selection{Model: override, Previous: previous, MaxCtx: ctx,
 				Note: fmt.Sprintf("pinned to %s via %s%s", override, variable, note)}
 		}
 		return sel

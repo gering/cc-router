@@ -32,10 +32,10 @@ func TestPackagedTable(t *testing.T) {
 	}
 	// One Codex ladder in all four rows (fable/opus/sonnet/haiku =
 	// Astra/Sol/Terra/Luna) at one 372000 ceiling; only the primary differs.
-	for i, primary := range []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra"} {
+	for i, primary := range []string{"gpt-6-sol", "gpt-5.6-terra", "gpt-6-luna", "gpt-6-astra"} {
 		r := rows[2+i]
-		if r.Model != primary || r.Fable != "gpt-6-astra" || r.Opus != "gpt-5.6-sol" ||
-			r.Sonnet != "gpt-5.6-terra" || r.Haiku != "gpt-5.6-luna" || r.MaxCtx != 372000 {
+		if r.Model != primary || r.Fable != "gpt-6-astra" || r.Opus != "gpt-6-sol" ||
+			r.Sonnet != "gpt-5.6-terra" || r.Haiku != "gpt-6-luna" || r.MaxCtx != 372000 {
 			t.Errorf("%s row = %+v", r.Name, r)
 		}
 	}
@@ -92,7 +92,11 @@ func TestResolveModel(t *testing.T) {
 		{"gpt-5.6-terra", "terra", "gpt-5.6-terra"},
 		{"kimi-k3-256k", "kimi", "kimi-k3-256k"},
 		{"gpt-6-astra", "astra", "gpt-6-astra"},
-		{"gpt-5.6-luna", "luna", "gpt-5.6-luna"}, // a primary outranks the shared ladder rung
+		{"gpt-6-luna", "luna", "gpt-6-luna"}, // a primary outranks the shared ladder rung
+		{"gpt-6-sol", "sol", "gpt-6-sol"},
+		// Superseded but still served: the former row, under its OWN id.
+		{"gpt-5.6-sol", "sol", "gpt-5.6-sol"},
+		{"gpt-5.6-luna", "luna", "gpt-5.6-luna"},
 		{"grok-4.6-build", "grok", "grok-4.6"},
 		{"grok-5.0-build", "grok", "grok-5.0"},
 		{"grok-9.9-experimental", "grok", "grok-9.9-experimental"},
@@ -110,13 +114,22 @@ func TestResolveModel(t *testing.T) {
 	// a newline, a control byte — is refused rather than printed.
 	// A retired or not-yet-carried codex id is refused rather than remapped
 	// onto some gpt row, so the resume path says it could not restore.
-	for _, in := range []string{"gpt-5.3-codex-spark", "gpt-6-sol", "gpt-6-luna", "gpt-6-terra",
+	for _, in := range []string{"gpt-5.3-codex-spark", "gpt-6-terra", "gpt-6.1-sol",
 		"gpt-9.9-unknown", "claude-opus-5", "grok-4.6\tforged\trow", "grok-4.6\nforged", "grok-\x1b[2J", strings.Repeat("grok-4.6", 20)} {
 		if _, _, err := table.ResolveModel(in); err == nil {
 			t.Errorf("%q resolved", in)
 		}
 	}
 	// A tier shared by rows that route differently is refused, never picked.
+	// A retained id whose row is gone is refused — before the family
+	// fallback, which here has ONE gpt claimant and would route it anyway.
+	stale := &Table{Rows: []Row{{Name: "sol", Model: "gpt-6-sol", Fable: "gpt-6-sol", Opus: "gpt-6-sol", Sonnet: "gpt-6-sol", Haiku: "gpt-6-sol", Cred: "codex", Login: "-codex-login", Provider: "Codex"}}}
+	if _, _, err := stale.ResolveModel("gpt-5.6-luna"); err == nil || !strings.Contains(err.Error(), "no longer exists") {
+		t.Fatalf("stale retained id: %v", err)
+	}
+	if agent, model, err := stale.ResolveModel("gpt-5.6-sol"); err != nil || agent != "sol" || model != "gpt-5.6-sol" {
+		t.Fatalf("live retained id: %s %s %v", agent, model, err)
+	}
 	split := &Table{Rows: []Row{
 		{Name: "a", Model: "a1", Opus: "a1", Sonnet: "shared", Haiku: "a1", Cred: "x", Login: "-x", Provider: "X"},
 		{Name: "b", Model: "b1", Opus: "b1", Sonnet: "shared", Haiku: "b1", Cred: "y", Login: "-y", Provider: "Y"},

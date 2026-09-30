@@ -275,6 +275,16 @@ func (t *Table) ResolveModel(wanted string) (agent, model string, err error) {
 	if hit != "" {
 		return hit, wanted, nil
 	}
+	// A superseded id answers with its former row and its OWN id, so the
+	// caller pins exactly what the session ran on. The row must still exist,
+	// and a stale entry is refused HERE: the family fallback below would hand
+	// a single-owner prefix to whatever row claims it today.
+	if agent, ok := retainedModels[wanted]; ok {
+		if _, live := t.Find(agent); live {
+			return agent, wanted, nil
+		}
+		return "", "", fail(exitUnavailable, "model %s is retained for agent %s, which no longer exists", oneLine(original), agent)
+	}
 	// The family fallback is the only branch that echoes its INPUT rather than
 	// a table value, and the result is a TSV field cc-harness-resume parses.
 	if !modelIDRe.MatchString(wanted) {

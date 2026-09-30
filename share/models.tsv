@@ -26,7 +26,8 @@
 # Values (verified against the route's catalog and measurements):
 #   grok-4.6        500000; the composer haiku rung is only 200k (haiku tier only)
 #   kimi-k3         262144 — the Kimi Code plan serves 256k, not the marketed 1M
-#   gpt-5.6-*       372000 — the subscription cap
+#   gpt-5.6-terra   372000 — the subscription cap
+#   gpt-6-sol/luna  372000 — floor-tested session budget, not a measured maximum
 #   gpt-6-astra     900000 measured, but exported as 372000: see the ladder
 #
 # CODEX LADDER (astra/sol/terra/luna): one ladder in all four rows — fable =
@@ -38,10 +39,11 @@
 # purpose: a route that stops serving any of the four ids takes all four rows
 # down, naming the id, because a row must never publish a rung the route
 # cannot serve. New ids enter by a deliberate, probed edit — never because a
-# catalog lists them.
+# catalog lists them. Superseded ids the route still serves (gpt-5.6-sol/luna)
+# stay resumable through the binary's retained list, not through this table.
 grok	grok-4.6	grok-4.6	grok-4.6	grok-4.5	grok-composer-2.5-fast	500000	xai	-xai-login	xAI
 kimi	kimi-k3	kimi-k3	kimi-k3	kimi-k3-256k	kimi-k2.7-code	262144	kimi	-kimi-login	Kimi
-sol	gpt-5.6-sol	gpt-6-astra	gpt-5.6-sol	gpt-5.6-terra	gpt-5.6-luna	372000	codex	-codex-login	Codex
-terra	gpt-5.6-terra	gpt-6-astra	gpt-5.6-sol	gpt-5.6-terra	gpt-5.6-luna	372000	codex	-codex-login	Codex
-luna	gpt-5.6-luna	gpt-6-astra	gpt-5.6-sol	gpt-5.6-terra	gpt-5.6-luna	372000	codex	-codex-login	Codex
-astra	gpt-6-astra	gpt-6-astra	gpt-5.6-sol	gpt-5.6-terra	gpt-5.6-luna	372000	codex	-codex-login	Codex
+sol	gpt-6-sol	gpt-6-astra	gpt-6-sol	gpt-5.6-terra	gpt-6-luna	372000	codex	-codex-login	Codex
+terra	gpt-5.6-terra	gpt-6-astra	gpt-6-sol	gpt-5.6-terra	gpt-6-luna	372000	codex	-codex-login	Codex
+luna	gpt-6-luna	gpt-6-astra	gpt-6-sol	gpt-5.6-terra	gpt-6-luna	372000	codex	-codex-login	Codex
+astra	gpt-6-astra	gpt-6-astra	gpt-6-sol	gpt-5.6-terra	gpt-6-luna	372000	codex	-codex-login	Codex

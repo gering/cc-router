@@ -72,9 +72,17 @@ func TestResolveOverrideAndLadder(t *testing.T) {
 	// An override never RAISES the ceiling: astra's own 900000 over sol's
 	// untouched Luna rung would overflow upstream one /model away.
 	capped := (&selector{env: NewEnv([]string{"CC_HARNESS_MODEL_SOL=gpt-6-astra"}), cat: &Catalog{}}).Resolve(sol)
-	if got := capped.Apply(sol); got.Model != "gpt-6-astra" || got.Haiku != "gpt-5.6-luna" || got.MaxCtx != 372000 ||
+	if got := capped.Apply(sol); got.Model != "gpt-6-astra" || got.Haiku != "gpt-6-luna" || got.MaxCtx != 372000 ||
 		!strings.Contains(capped.Note, "capped at the row ceiling 372000 (its own window 900000") {
 		t.Fatalf("capped override = %+v %q", got, capped.Note)
+	}
+
+	// A RETAINED id on its former row swaps only the primary and the rungs
+	// equal to it; the tracking sonnet rung keeps the table's value.
+	retained := (&selector{env: NewEnv([]string{"CC_HARNESS_MODEL_SOL=gpt-5.6-sol"}), cat: &Catalog{}}).Resolve(sol)
+	if got := retained.Apply(sol); got.Model != "gpt-5.6-sol" || got.Opus != "gpt-5.6-sol" || got.Fable != "gpt-6-astra" ||
+		got.Sonnet != "gpt-5.6-terra" || got.Haiku != "gpt-6-luna" || got.MaxCtx != 372000 {
+		t.Fatalf("retained pin = %+v", got)
 	}
 
 	// An override is exported as a literal model id, so it is held to the same
