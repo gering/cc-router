@@ -153,8 +153,9 @@ and it only works inside a prepared window.
 **A new model is a table row, never a code path.** Provider, tiers and the real
 context ceiling live in one line of a table. If a sixth model needs a branch,
 the change is in the wrong shape. What is policy, not data: which newer
-releases discovery may pick, and their verified windows — a pinned or
-discovered id outside that list gets a conservative ceiling and says so.
+releases discovery may pick, their verified windows, and which superseded ids
+stay resumable on their former row — a pinned or discovered id outside the
+verified list gets a conservative ceiling and says so.
 
 **Fail closed, and say which layer failed.** `403` Access, `401` proxy key,
 `502` origin, TLS, missing model — each is a distinct message. A generic "proxy

@@ -85,9 +85,10 @@ architecture doc was written).
 
 ## Progress (2026-09-22)
 
-- **Baseline:** dotfiles `de7a736` (#44, the Codex ladder without Spark;
-  first extracted at `f429346`, which includes `7d31d78`, the newest-offered
-  Grok selection). `share/models.tsv` is byte-for-byte the bash `AGENTS`
+- **Baseline:** dotfiles `5eecae2` (#45, gpt-6-sol/luna as the Sol/Luna
+  rungs; before it `de7a736`, #44, the Codex ladder without Spark; first
+  extracted at `f429346`, which includes `7d31d78`, the newest-offered Grok
+  selection). `share/models.tsv` is byte-for-byte the bash `AGENTS`
   table at that commit. Re-diff before the cutover.
 - **Port:** `cmd/cc-harness-agents` + `internal/agents` (Go 1.27). Runtime
   has no curl/jq/nc/bash dependency; `exec` is `syscall.Exec`.
@@ -173,3 +174,13 @@ unchanged; the "vanished exact model" question stays with Robert. Next: a
 dotfiles task (`codex-gpt6-sol-luna`) is expected to add GPT-6 Sol/Luna rows
 before the cutover — re-diff dotfiles HEAD once more when its merge SHA
 arrives; that is the last sync before the freeze.
+
+**Synced 2026-09-30:** dotfiles #45 merged as `5eecae2` and is ported onto PR #4
+as separate commits — gpt-6-sol/luna as primaries and opus/haiku rungs, their
+floor-tested 372000 in the verified windows, the retained list (gpt-5.6-sol/luna
+stay resumable on their own id; primary > tier > retained > family; a retained
+id without its row is refused), and a retained pin that swaps only the primary.
+433 assertions; `tests/migration-coverage.md` re-mapped (352 sites). Resume
+semantics ported exactly, no tightening; the "vanished exact model" question
+stays with Robert. Next: the manager arranges the freeze; re-diff dotfiles HEAD
+once more inside it.
