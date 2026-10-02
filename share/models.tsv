@@ -38,9 +38,12 @@
 # auto-compact never prevents. The shared ladder couples availability on
 # purpose: a route that stops serving any of the four ids takes all four rows
 # down, naming the id, because a row must never publish a rung the route
-# cannot serve. New ids enter by a deliberate, probed edit — never because a
-# catalog lists them. Superseded ids the route still serves (gpt-5.6-sol/luna)
-# stay resumable through the binary's retained list, not through this table.
+# cannot serve. The ids here are the LAST-KNOWN ladder: on the remote route
+# each role (sol/terra/luna/astra) takes the newest offered gpt-6[.n]-<role>,
+# inheriting major 6's 372000, so a new minor needs no edit here. A new major
+# does: it enters the binary's pattern only with a measured window. Any served
+# gpt-6.n-<role> stays resumable on its role; the superseded gpt-5.6-sol/luna
+# through the binary's retained list.
 grok	grok-4.6	grok-4.6	grok-4.6	grok-4.5	grok-composer-2.5-fast	500000	xai	-xai-login	xAI
 kimi	kimi-k3	kimi-k3	kimi-k3	kimi-k3-256k	kimi-k2.7-code	262144	kimi	-kimi-login	Kimi
 sol	gpt-6-sol	gpt-6-astra	gpt-6-sol	gpt-5.6-terra	gpt-6-luna	372000	codex	-codex-login	Codex
