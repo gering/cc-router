@@ -83,8 +83,9 @@ to the Anthropic default with a notice. Which applies to a retired exact model?
 
 ## Current friction
 The routing helper embeds a profile table while the zsh wrapper separately lists
-model flags. Dynamic discovery is currently special-cased for Grok; new GPT models
-still require client edits even when the proxy already serves them. Context limits
+model flags. Dynamic discovery covers Grok releases and Codex minors within a
+verified major; a new GPT major or role still requires a client edit even when the
+proxy already serves it. Context limits
 and tier defaults require verification independent of catalog presence. Provider
 response names may differ from advertised aliases (e.g. Grok's -build suffix).
 

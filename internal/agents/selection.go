@@ -245,8 +245,9 @@ type Selection struct {
 }
 
 // modelContext returns a model's window from the first source that knows:
-// VERIFIED, then its major's inherited window, then catalog metadata (clamped
-// to the family cap), then the newest verified PREDECESSOR (an assumption).
+// VERIFIED, then its major's inherited window (lowered by smaller catalog
+// metadata), then catalog metadata (clamped to the family cap), then the
+// newest verified PREDECESSOR (an assumption).
 // The last three apply to candidates of the row's family only. note names a
 // window that is not a measured one, so the source and its label come from
 // one place.
@@ -260,6 +261,11 @@ func (s *selector) modelContext(cred, id string) (ctx int, note string, ok bool)
 	}
 	major, _, _ := release(id)
 	if ctx, ok := fam.majorContext[major]; ok {
+		// The inheritance assumes a minor never SHRINKS the window; a
+		// catalog that says otherwise wins.
+		if c, ok := s.cat.Context[id]; ok && c < ctx {
+			return c, fmt.Sprintf("; context window %d from catalog metadata, below major %s's %d", c, major, ctx), true
+		}
 		return ctx, "", true
 	}
 	if fam.catalogCap == 0 {
@@ -311,14 +317,22 @@ func (s *selector) rungHolds(cred, id string, ceiling int) bool {
 	return ceiling <= unverifiedMaxCtx
 }
 
+// offered lists the catalog's candidates of one class, in response order.
+func (s *selector) offered(cred, cls string) []string {
+	var out []string
+	for _, id := range s.cat.IDs {
+		if isCandidate(discovery[cred].pattern, id) && class(id) == cls {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // highest is the newest candidate of one class in the catalog, optionally
 // strictly below `below` and able to hold `ceiling` (0 = no constraint).
 func (s *selector) highest(cred, cls, below string, ceiling int) string {
 	best := ""
-	for _, id := range s.cat.IDs {
-		if !isCandidate(discovery[cred].pattern, id) || class(id) != cls {
-			continue
-		}
+	for _, id := range s.offered(cred, cls) {
 		if below != "" && !versionNewer(below, id) {
 			continue
 		}
@@ -335,17 +349,20 @@ func (s *selector) highest(cred, cls, below string, ceiling int) string {
 // candidates lists every candidate of one class the catalog offers, newest
 // first, capped.
 func (s *selector) candidates(cred, cls string) string {
-	var c []string
-	for _, id := range s.cat.IDs {
-		if isCandidate(discovery[cred].pattern, id) && class(id) == cls {
-			c = append(c, id)
-		}
-	}
+	c := s.offered(cred, cls)
 	sort.SliceStable(c, func(i, j int) bool { return versionNewer(c[i], c[j]) })
 	if len(c) > candidateNoteMax {
 		return strings.Join(c[:candidateNoteMax], " ") + " …"
 	}
 	return strings.Join(c, " ")
+}
+
+// otherRole: two released ids of different classes are different roles. An
+// id without a release (kimi-k3) claims no role, so its siblings track it.
+func otherRole(a, b string) bool {
+	_, _, _, aRel := splitRelease(a)
+	_, _, _, bRel := splitRelease(b)
+	return aRel && bRel && class(a) != class(b)
 }
 
 // classes groups the row's distinct models by class, the primary's class
@@ -385,13 +402,14 @@ func (s *selector) Resolve(r Row) Selection {
 			// the resume path pins the recorded primary, and collapsing the
 			// tiers there silently changed a resumed session's sonnet rung.
 		default:
-			// One reproducible model: every rung the table put in the
-			// primary's class collapses onto it (grok's previous rung follows,
-			// codex's other roles stay), with the ceiling of THAT model —
-			// sharing a row is not sharing a window. A retained or discovered
-			// id so resumes the ladder it ran under. The ceiling is never
-			// RAISED above the row's: the rungs that stay are reachable with
-			// /model, and the row ceiling is what they were sized against.
+			// One reproducible model: the primary's rungs and the previous
+			// rung follow it, with the ceiling of THAT model — sharing a row
+			// is not sharing a window. A previous rung that is another ROLE
+			// (codex's Terra under Sol) stays: before a newer release or the
+			// rung swap, a retained or discovered pin WAS the primary, and
+			// that rung was not tracking it. The ceiling is never RAISED
+			// above the row's: the rungs that stay are reachable with /model,
+			// and the row ceiling is what they were sized against.
 			ctx, note := s.ceiling(r.Cred, override)
 			if known, _, ok := s.modelContext(r.Cred, override); ok && known > r.MaxCtx {
 				ctx = r.MaxCtx
@@ -399,10 +417,9 @@ func (s *selector) Resolve(r Row) Selection {
 			}
 			sel = Selection{Model: override, MaxCtx: ctx, moves: map[string]string{},
 				Note: fmt.Sprintf("pinned to %s via %s%s", override, variable, note)}
-			for _, m := range r.models() {
-				if class(m) == class(r.Model) {
-					sel.moves[m] = override
-				}
+			sel.moves[r.Model] = override
+			if !otherRole(r.Sonnet, r.Model) {
+				sel.moves[r.Sonnet] = override
 			}
 		}
 		return sel
@@ -462,7 +479,9 @@ func (s *selector) Resolve(r Row) Selection {
 		sel.Model = m
 	}
 	if ceiling > 0 {
-		sel.MaxCtx = ceiling
+		// Never above the row's: the rungs discovery did not place are the
+		// table's, sized against its max_ctx.
+		sel.MaxCtx = min(ceiling, r.MaxCtx)
 	}
 	sel.Note = strings.Join(notes, "; ")
 	return sel

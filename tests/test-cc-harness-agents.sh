@@ -258,6 +258,19 @@ for arg in "$@"; do printf 'ARG=%s\n' "$arg"; done
 CAPTURE
 chmod +x "$TARGET"
 
+# The per-case remote environment as an array — `env -i` needs the words kept
+# apart, and an unquoted command substitution would leave that to word splitting.
+REMOTE_ENV=()
+set_remote_env() {
+  REMOTE_ENV=(
+    "HOME=$CASE_HOME" "TMPDIR=$CASE_DIR/tmp" "PATH=$COMMON_PATH"
+    "FAKE_CURL_COUNT_FILE=$CURL_COUNT" "FAKE_CURL_LOG_FILE=$CURL_LOG"
+    "CLIPROXY_API_KEY_TEST=remote-api-secret"
+    "CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret"
+    "CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret"
+  )
+}
+
 # The one catalog builder, used by the fixtures here AND by the discovery cases
 # further down. Defined before its first use.
 catalog_of() {
@@ -698,12 +711,9 @@ done
 # move nothing.
 setup_case
 write_remote_profile TEST
+set_remote_env
 CODEX_CATALOG="$(catalog_of "${ALL_MODEL_IDS[@]}" gpt-6-sol-preview gpt-6.1-sol-fast gpt-6.1-nova gpt-7-sol gpt-7.1-astra 'gpt-6-sol|999999')"
-run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
-  FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" FAKE_CURL_BODY="$CODEX_CATALOG" \
-  CLIPROXY_API_KEY_TEST=remote-api-secret \
-  CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret \
-  CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \
+run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_BODY="$CODEX_CATALOG" \
   "$HELPER" exec sol -- "$TARGET"
 assert_eq 0 "$RC" "a catalog with gpt-6 variants still execs sol"
 assert_contains "$OUT" $'MODEL=gpt-6-sol\nSUBAGENT=gpt-6-sol\nFABLE=gpt-6-astra\nOPUS=gpt-6-sol\nSONNET=gpt-5.6-terra\nHAIKU=gpt-6-luna' "variants and a 7.x move no codex rung"
@@ -714,29 +724,18 @@ assert_eq '' "$ERR" "variants and a 7.x select nothing to report"
 # primary, the shared opus rung), and no other rung does.
 setup_case
 write_remote_profile TEST
+set_remote_env
 CODEX_CATALOG="$(catalog_of "${ALL_MODEL_IDS[@]}" gpt-6.1-sol)"
-run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
-  FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" FAKE_CURL_BODY="$CODEX_CATALOG" \
-  CLIPROXY_API_KEY_TEST=remote-api-secret \
-  CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret \
-  CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \
+run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_BODY="$CODEX_CATALOG" \
   "$HELPER" exec sol -- "$TARGET"
 assert_eq 0 "$RC" "a served gpt-6.1-sol execs sol"
 assert_contains "$OUT" $'MODEL=gpt-6.1-sol\nSUBAGENT=gpt-6.1-sol\nFABLE=gpt-6-astra\nOPUS=gpt-6.1-sol\nSONNET=gpt-5.6-terra\nHAIKU=gpt-6-luna' "gpt-6.1-sol moves only the sol role"
 assert_contains "$OUT" 'CONTEXT=372000' "the minor inherits its major's window"
 assert_contains "$ERR" 'auto-selected gpt-6.1-sol (candidates: gpt-6.1-sol gpt-6-sol; last-known: gpt-6-sol)' "exec names the codex selection on stderr"
-run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
-  FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" FAKE_CURL_BODY="$CODEX_CATALOG" \
-  CLIPROXY_API_KEY_TEST=remote-api-secret \
-  CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret \
-  CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \
+run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_BODY="$CODEX_CATALOG" \
   "$HELPER" exec terra -- "$TARGET"
 assert_contains "$OUT" $'MODEL=gpt-5.6-terra\nSUBAGENT=gpt-5.6-terra\nFABLE=gpt-6-astra\nOPUS=gpt-6.1-sol\nSONNET=gpt-5.6-terra\nHAIKU=gpt-6-luna' "the shared opus rung moves in another row too"
-run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
-  FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" FAKE_CURL_BODY="$CODEX_CATALOG" \
-  CLIPROXY_API_KEY_TEST=remote-api-secret \
-  CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret \
-  CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \
+run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_BODY="$CODEX_CATALOG" \
   "$HELPER" list --no-header
 assert_contains "$OUT" $'cc-harness:sol\tgpt-6.1-sol\tyes\tauto-selected gpt-6.1-sol (candidates: gpt-6.1-sol gpt-6-sol; last-known: gpt-6-sol)' "list shows the newest served sol with the auto-selected note"
 assert_contains "$OUT" $'cc-harness:luna\tgpt-6-luna\tyes\tauto-selected gpt-6.1-sol' "a row whose primary stayed still names the moved rung"
@@ -745,12 +744,9 @@ assert_contains "$OUT" $'cc-harness:luna\tgpt-6-luna\tyes\tauto-selected gpt-6.1
 # replaces the 5.6 one.
 setup_case
 write_remote_profile TEST
+set_remote_env
 CODEX_CATALOG="$(catalog_of "${ALL_MODEL_IDS[@]}" gpt-6.1-sol gpt-6.2-sol gpt-6.1-luna gpt-6.3-astra gpt-6-terra)"
-run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
-  FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" FAKE_CURL_BODY="$CODEX_CATALOG" \
-  CLIPROXY_API_KEY_TEST=remote-api-secret \
-  CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret \
-  CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \
+run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_BODY="$CODEX_CATALOG" \
   "$HELPER" exec astra -- "$TARGET"
 assert_eq 0 "$RC" "mixed minors exec astra"
 assert_contains "$OUT" $'MODEL=gpt-6.3-astra\nSUBAGENT=gpt-6.3-astra\nFABLE=gpt-6.3-astra\nOPUS=gpt-6.2-sol\nSONNET=gpt-6-terra\nHAIKU=gpt-6.1-luna' "every role takes its own newest minor"
@@ -760,20 +756,13 @@ assert_contains "$OUT" 'CONTEXT=372000' "the ceiling is still the smallest reach
 # also skips discovery — and an explicit pin on a minor outranks a newer one.
 setup_case
 write_remote_profile TEST
+set_remote_env
 CODEX_CATALOG="$(catalog_of "${ALL_MODEL_IDS[@]}" gpt-6.1-sol gpt-6.2-sol)"
-run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
-  FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" FAKE_CURL_BODY="$CODEX_CATALOG" \
-  CLIPROXY_API_KEY_TEST=remote-api-secret \
-  CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret \
-  CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \
+run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_BODY="$CODEX_CATALOG" \
   CC_HARNESS_MODEL_SOL=gpt-6-sol \
   "$HELPER" exec sol -- "$TARGET"
 assert_contains "$OUT" $'MODEL=gpt-6-sol\nSUBAGENT=gpt-6-sol\nFABLE=gpt-6-astra\nOPUS=gpt-6-sol\nSONNET=gpt-5.6-terra\nHAIKU=gpt-6-luna' "a gpt-6-sol session resumes on gpt-6-sol after 6.1 appears"
-run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
-  FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" FAKE_CURL_BODY="$CODEX_CATALOG" \
-  CLIPROXY_API_KEY_TEST=remote-api-secret \
-  CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret \
-  CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \
+run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_BODY="$CODEX_CATALOG" \
   CC_HARNESS_MODEL_SOL=gpt-6.1-sol \
   "$HELPER" exec sol -- "$TARGET"
 assert_contains "$OUT" $'MODEL=gpt-6.1-sol\nSUBAGENT=gpt-6.1-sol\nFABLE=gpt-6-astra\nOPUS=gpt-6.1-sol\nSONNET=gpt-5.6-terra\nHAIKU=gpt-6-luna' "a pinned minor outranks discovery and moves only its role"
@@ -900,19 +889,6 @@ LIVE_GROK_IDS=(
 
 xai_catalog() {
   catalog_of "${LIVE_GROK_IDS[@]}" "$@"
-}
-
-# The per-case remote environment as an array — `env -i` needs the words kept
-# apart, and an unquoted command substitution would leave that to word splitting.
-REMOTE_ENV=()
-set_remote_env() {
-  REMOTE_ENV=(
-    "HOME=$CASE_HOME" "TMPDIR=$CASE_DIR/tmp" "PATH=$COMMON_PATH"
-    "FAKE_CURL_COUNT_FILE=$CURL_COUNT" "FAKE_CURL_LOG_FILE=$CURL_LOG"
-    "CLIPROXY_API_KEY_TEST=remote-api-secret"
-    "CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret"
-    "CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret"
-  )
 }
 
 # The whole live catalog resolves to the pinned model: not one of the 4.20

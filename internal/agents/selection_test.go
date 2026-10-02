@@ -63,6 +63,11 @@ func TestClass(t *testing.T) {
 // extra, and returns the exported ladder as "model fable opus sonnet haiku ctx".
 func codexLadder(t *testing.T, agent string, extra ...string) (string, string) {
 	t.Helper()
+	return codexLadderCtx(t, agent, map[string]int{}, extra...)
+}
+
+func codexLadderCtx(t *testing.T, agent string, ctx map[string]int, extra ...string) (string, string) {
+	t.Helper()
 	var row Row
 	for _, r := range packagedRows(t) {
 		if r.Name == agent {
@@ -70,7 +75,7 @@ func codexLadder(t *testing.T, agent string, extra ...string) (string, string) {
 		}
 	}
 	ids := append(strings.Fields("gpt-6-astra gpt-6-sol gpt-5.6-terra gpt-6-luna gpt-5.6-sol gpt-5.6-luna gpt-5.5"), extra...)
-	sel := (&selector{env: NewEnv(nil), cat: &Catalog{State: catalogValid, IDs: ids, Context: map[string]int{}}}).Resolve(row)
+	sel := (&selector{env: NewEnv(nil), cat: &Catalog{State: catalogValid, IDs: ids, Context: ctx}}).Resolve(row)
 	e := sel.Apply(row)
 	return fmt.Sprintf("%s %s %s %s %s %d", e.Model, e.Fable, e.Opus, e.Sonnet, e.Haiku, e.MaxCtx), sel.Note
 }
@@ -80,30 +85,32 @@ func TestCodexDiscovery(t *testing.T) {
 		name, agent string
 		extra       []string
 		want        string
+		selected    bool // a note names an auto-selection
 	}{
-		{"6.0 only", "sol", nil, "gpt-6-sol gpt-6-astra gpt-6-sol gpt-5.6-terra gpt-6-luna 372000"},
-		{"6.0 only, astra keeps the shared ceiling", "astra", nil, "gpt-6-astra gpt-6-astra gpt-6-sol gpt-5.6-terra gpt-6-luna 372000"},
+		{"6.0 only", "sol", nil, "gpt-6-sol gpt-6-astra gpt-6-sol gpt-5.6-terra gpt-6-luna 372000", false},
+		{"6.0 only, astra keeps the shared ceiling", "astra", nil, "gpt-6-astra gpt-6-astra gpt-6-sol gpt-5.6-terra gpt-6-luna 372000", false},
 		// Rungs move independently: only the sol role moved.
-		{"6.1-sol only", "sol", []string{"gpt-6.1-sol"}, "gpt-6.1-sol gpt-6-astra gpt-6.1-sol gpt-5.6-terra gpt-6-luna 372000"},
-		{"6.1-sol only, other row", "luna", []string{"gpt-6.1-sol"}, "gpt-6-luna gpt-6-astra gpt-6.1-sol gpt-5.6-terra gpt-6-luna 372000"},
+		{"6.1-sol only", "sol", []string{"gpt-6.1-sol"}, "gpt-6.1-sol gpt-6-astra gpt-6.1-sol gpt-5.6-terra gpt-6-luna 372000", true},
+		{"6.1-sol only, other row", "luna", []string{"gpt-6.1-sol"}, "gpt-6-luna gpt-6-astra gpt-6.1-sol gpt-5.6-terra gpt-6-luna 372000", true},
 		{"mixed minors per role", "terra", []string{"gpt-6.1-sol", "gpt-6.2-sol", "gpt-6.1-luna", "gpt-6.3-astra", "gpt-6-terra"},
-			"gpt-6-terra gpt-6.3-astra gpt-6.2-sol gpt-6-terra gpt-6.1-luna 372000"},
+			"gpt-6-terra gpt-6.3-astra gpt-6.2-sol gpt-6-terra gpt-6.1-luna 372000", true},
 		{"7.x and variants ignored", "astra",
 			[]string{"gpt-7-sol", "gpt-7.1-astra", "gpt-6.1-sol-preview", "gpt-6-sol-fast", "gpt-6.1-nova", "GPT-6.1-luna", "gpt-6.99999-sol", "gpt-6.1"},
-			"gpt-6-astra gpt-6-astra gpt-6-sol gpt-5.6-terra gpt-6-luna 372000"},
+			"gpt-6-astra gpt-6-astra gpt-6-sol gpt-5.6-terra gpt-6-luna 372000", false},
 	}
 	for _, c := range cases {
 		got, note := codexLadder(t, c.agent, c.extra...)
 		if got != c.want {
 			t.Errorf("%s: ladder = %s, want %s", c.name, got, c.want)
 		}
-		if c.extra == nil || strings.HasPrefix(c.name, "7.x") {
-			if note != "" {
-				t.Errorf("%s: note = %q, want none", c.name, note)
-			}
-		} else if !strings.Contains(note, "auto-selected gpt-6") {
+		if strings.Contains(note, "auto-selected gpt-6") != c.selected || (!c.selected && note != "") {
 			t.Errorf("%s: note = %q", c.name, note)
 		}
+	}
+	// A catalog advertising LESS than the inherited window wins, and says so.
+	got, note := codexLadderCtx(t, "sol", map[string]int{"gpt-6.1-sol": 128000}, "gpt-6.1-sol")
+	if !strings.HasSuffix(got, " 128000") || !strings.Contains(note, "context window 128000 from catalog metadata, below major 6's 372000") {
+		t.Errorf("smaller catalog window = %s %q", got, note)
 	}
 	if _, note := codexLadder(t, "sol", "gpt-6.1-sol"); note != "auto-selected gpt-6.1-sol (candidates: gpt-6.1-sol gpt-6-sol; last-known: gpt-6-sol)" {
 		t.Errorf("note = %q", note)
@@ -128,6 +135,26 @@ func TestCodexResume(t *testing.T) {
 	}
 	if pin.Note != "pinned to gpt-6.1-sol via CC_HARNESS_MODEL_SOL" {
 		t.Fatalf("note = %q", pin.Note)
+	}
+}
+
+// The session ceiling never exceeds the row's: an unplaced rung (here a 5.6
+// Terra with no gpt-6 successor) was sized against max_ctx, not astra's 900000.
+func TestDiscoveredCeilingCappedAtRow(t *testing.T) {
+	row := Row{Name: "astra", Model: "gpt-6-astra", Fable: "gpt-6-astra", Opus: "gpt-6-astra", Sonnet: "gpt-5.6-terra", Haiku: "gpt-6-astra", MaxCtx: 372000, Cred: "codex"}
+	cat := &Catalog{State: catalogValid, IDs: strings.Fields("gpt-6-astra gpt-5.6-terra"), Context: map[string]int{}}
+	if got := (&selector{env: NewEnv(nil), cat: cat}).Resolve(row).Apply(row); got.MaxCtx != 372000 {
+		t.Fatalf("ceiling = %d", got.MaxCtx)
+	}
+}
+
+// An id without a release claims no role, so its previous rung still tracks
+// an override (a kimi-k3 / kimi-k3-256k ladder collapses as before).
+func TestOverrideCollapsesUnreleasedLadder(t *testing.T) {
+	row := Row{Name: "kimi", Model: "kimi-k3", Fable: "kimi-k3", Opus: "kimi-k3", Sonnet: "kimi-k3-256k", Haiku: "kimi-k2.7-code", MaxCtx: 262144, Cred: "kimi"}
+	got := (&selector{env: NewEnv([]string{"CC_HARNESS_MODEL_KIMI=kimi-k2.7-code"}), cat: &Catalog{}}).Resolve(row).Apply(row)
+	if got.Model != "kimi-k2.7-code" || got.Opus != "kimi-k2.7-code" || got.Sonnet != "kimi-k2.7-code" {
+		t.Fatalf("ladder = %+v", got)
 	}
 }
 

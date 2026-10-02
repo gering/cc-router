@@ -287,8 +287,8 @@ func (t *Table) ResolveModel(wanted string) (agent, model string, err error) {
 	}
 	// A release a family could discover resolves to the one row whose primary
 	// shares its class, so a session recorded on gpt-6.1-sol resumes on sol
-	// without a table edit. A 7.x or variant id fails the pattern and falls
-	// through to the refusals below.
+	// without a table edit. A 7.x or variant id fails the pattern and is left
+	// to the family fallback, which the packaged table's four gpt rows refuse.
 	if agent, ok := t.discovered(wanted); ok {
 		return agent, wanted, nil
 	}
