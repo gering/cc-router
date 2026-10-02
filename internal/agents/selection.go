@@ -37,7 +37,7 @@ var (
 
 	// Windows measured (or provider-documented) on this route. It is also what
 	// gives a PINNED tier its real ceiling: the row's max_ctx belongs to the
-	// primary only. Ids with an undocumented window (kimi-k2.7-code, gpt-5.5)
+	// primary only. Ids with an undocumented window (gpt-5.5)
 	// are deliberately absent. gpt-6-sol/luna carry their FLOOR-TESTED session
 	// budget, not a measured maximum; the superseded gpt-5.6-sol/luna stay so a
 	// retained resume pin keeps its window. Ordered: ties in the predecessor
@@ -48,8 +48,6 @@ var (
 		{"grok-4.6", 500000},
 		{"grok-4.7", 500000},
 		{"grok-composer-2.5-fast", 200000},
-		{"kimi-k3", 262144},
-		{"kimi-k3-256k", 262144},
 		{"gpt-5.6-sol", 372000},
 		{"gpt-5.6-terra", 372000},
 		{"gpt-5.6-luna", 372000},

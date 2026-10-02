@@ -7,7 +7,7 @@ model and the complete routing environment, including when a session is restored
 directly by herdr.
 
 The solution must work for native Claude models as well as models routed through
-CLIProxyAPI, without requiring users to remember the original `--grok`, `--kimi`,
+CLIProxyAPI, without requiring users to remember the original `--grok`,
 `--sol`, `--terra`, `--luna`, `--astra`, or `--local` flags — or whichever
 agent rows `share/models.tsv` carries by then.
 
@@ -229,7 +229,7 @@ Cover at least:
 | `claude` | none | Native launch unchanged |
 | `claude --resume ID` | native Opus | Native resume, no injected foreign route |
 | `claude --resume ID` | Grok remote | Grok route plus exact cached model |
-| `claude --resume ID` | Kimi local | Local gate plus exact cached model |
+| `claude --resume ID` | Grok local | Local gate plus exact cached model |
 | `claude --resume ID` | Sol profile, Terra model | Codex route with Terra as active model |
 | `claude --resume ID --grok` | cached Sol | Explicit Grok wins |
 | `claude --resume ID --model opus` | cached Grok | Explicit native model wins without stale routing |
@@ -270,7 +270,7 @@ all Claude transcripts during installation.
 After automated tests pass, verify manually with:
 
 1. a native Claude session that switches models before exit;
-2. one Grok or Kimi session restored by explicit UUID;
+2. one Grok session restored by explicit UUID;
 3. one Codex session that switches between Sol and Terra;
 4. `-c` from a repository root and from a worktree;
 5. a complete herdr server restart followed by automatic pane restoration.

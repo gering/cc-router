@@ -196,7 +196,6 @@ write_local_credentials() {
   mkdir -p "$CASE_HOME/.cli-proxy-api"
   printf 'local-token\n' > "$CASE_HOME/.cli-proxy-api/client.key"
   printf '{"access_token":"x","refresh_token":"r"}\n' > "$CASE_HOME/.cli-proxy-api/xai-test.json"
-  printf '{"access_token":"k","refresh_token":"r"}\n' > "$CASE_HOME/.cli-proxy-api/kimi-test.json"
   printf '{"access_token":"c","refresh_token":"r"}\n' > "$CASE_HOME/.cli-proxy-api/codex-test.json"
   # The local route is only sanctioned inside a `cliproxy-auth prepare-local`
   # window, so every local case needs that marker present and fresh.
@@ -278,7 +277,6 @@ catalog_of() {
 ALL_MODEL_IDS=(
   gpt-6-astra gpt-5.5 codex-auto-review
   grok-4.6 grok-composer-2.5-fast
-  kimi-k3 kimi-k3-256k kimi-k2.7-code
   gpt-6-sol gpt-5.6-terra gpt-6-luna
   gpt-5.6-sol gpt-5.6-luna
 )
@@ -287,7 +285,7 @@ ALL_MODELS="$(catalog_of "${ALL_MODEL_IDS[@]}")"
 # How many rows the packaged table is expected to publish. A LITERAL,
 # deliberately not derived from share/models.tsv: a count read out of the
 # implementation agrees with it by construction and would assert nothing.
-EXPECTED_ROWS=6
+EXPECTED_ROWS=5
 
 # ALL_MODELS minus the named id(s). It REFUSES to return a catalog it did not
 # actually shrink, so an absence assertion cannot pass for the wrong reason.
@@ -315,10 +313,10 @@ catalog_without() {
 # Remote list uses the profile file, one probe, and classifies every row from it.
 setup_case
 write_remote_profile TEST
-REMOTE_WITHOUT_KIMI_TIER="$(catalog_without kimi-k2.7-code)"
+REMOTE_WITHOUT_GROK_TIER="$(catalog_without grok-composer-2.5-fast)"
 run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
   FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" \
-  FAKE_CURL_BODY="$REMOTE_WITHOUT_KIMI_TIER" \
+  FAKE_CURL_BODY="$REMOTE_WITHOUT_GROK_TIER" \
   CLIPROXY_API_KEY_TEST=remote-api-secret \
   CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret \
   CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \
@@ -326,7 +324,7 @@ run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" 
 assert_eq 0 "$RC" "remote list succeeds"
 assert_eq 1 "$(curl_calls)" "remote list probes exactly once"
 assert_contains "$OUT" $'cc-harness:sol\tgpt-6-sol\tyes\t-' "remote list marks a returned model available"
-assert_contains "$OUT" $'cc-harness:kimi\tkimi-k3\tno\tremote models missing: kimi-k2.7-code' "remote list marks a missing model unavailable"
+assert_contains "$OUT" $'cc-harness:grok\tgrok-4.6\tno\tremote models missing: grok-composer-2.5-fast' "remote list marks a missing model unavailable"
 assert_eq "$EXPECTED_ROWS" "$(printf '%s\n' "$OUT" | grep -c '^cc-harness:')" "remote list emits every table row"
 assert_eq "$EXPECTED_ROWS" "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" "a captured listing carries no header line"
 # The header is a terminal-only reading aid: forcing it on must not disturb the
@@ -335,7 +333,7 @@ setup_case
 write_remote_profile TEST
 run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
   FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" \
-  FAKE_CURL_BODY="$REMOTE_WITHOUT_KIMI_TIER" \
+  FAKE_CURL_BODY="$REMOTE_WITHOUT_GROK_TIER" \
   CLIPROXY_API_KEY_TEST=remote-api-secret \
   CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret \
   CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \
@@ -371,7 +369,7 @@ setup_case
 write_remote_profile TEST
 run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
   FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" \
-  FAKE_CURL_BODY="$REMOTE_WITHOUT_KIMI_TIER" \
+  FAKE_CURL_BODY="$REMOTE_WITHOUT_GROK_TIER" \
   CLIPROXY_API_KEY_TEST=remote-api-secret \
   CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret \
   CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \
@@ -1146,9 +1144,9 @@ assert_contains "$OUT" 'CONTEXT=200000' "a variant's advertised window is never 
 setup_case
 write_remote_profile TEST
 set_remote_env
-run_capture env -i "${REMOTE_ENV[@]}" CC_HARNESS_MODEL_KIMI=kimi-k2.7-code \
-  FAKE_CURL_BODY="$(catalog_with_context kimi-k2.7-code=1000000 kimi-k3=1000000 kimi-k3-256k=1000000)" \
-  "$HELPER" exec kimi -- "$TARGET"
+run_capture env -i "${REMOTE_ENV[@]}" CC_HARNESS_MODEL_SOL=gpt-5.5 \
+  FAKE_CURL_BODY="$(catalog_with_context gpt-5.5=1000000 gpt-6-sol=1000000 gpt-6-astra=1000000 gpt-5.6-terra=1000000 gpt-6-luna=1000000)" \
+  "$HELPER" exec sol -- "$TARGET"
 assert_contains "$OUT" 'CONTEXT=200000' "an agent without discovery never reads catalog metadata"
 
 # LATEST MEANS CURRENTLY OFFERED. A valid catalog that no longer offers the
@@ -1356,17 +1354,17 @@ run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" 
 assert_contains "$OUT" $'cc-harness:grok\tgrok-4.6\t' "the local route lists the deterministic pinned model"
 
 # A pinned tier gets ITS OWN verified ceiling, not the row's. Before, only the
-# primary was recognised, so `--kimi` resumed on its sonnet tier auto-compacted
-# at 200000 instead of 262144 and claimed the window was unverified.
+# primary was recognised, so a session resumed on a sonnet tier auto-compacted
+# at 200000 instead of the tier's real window and claimed it was unverified.
 setup_case
 write_local_credentials
 run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
   FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" \
-  CC_HARNESS_MODEL_KIMI=kimi-k3-256k \
-  "$HELPER" exec --local kimi -- "$TARGET"
+  CC_HARNESS_MODEL_SOL=gpt-5.6-terra \
+  "$HELPER" exec --local sol -- "$TARGET"
 assert_eq 0 "$RC" "a tier override execs"
-assert_contains "$OUT" 'MODEL=kimi-k3-256k' "the tier override reaches the environment"
-assert_contains "$OUT" 'CONTEXT=262144' "a verified tier keeps its own real ceiling"
+assert_contains "$OUT" 'MODEL=gpt-5.6-terra' "the tier override reaches the environment"
+assert_contains "$OUT" 'CONTEXT=372000' "a verified tier keeps its own real ceiling"
 assert_not_contains "$ERR" 'context window unknown' "a model the table declares is never called unverified"
 
 # Pinning the primary is the silent default; any other tier is a real change and
@@ -1375,9 +1373,9 @@ setup_case
 write_local_credentials
 run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
   FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" \
-  CC_HARNESS_MODEL_KIMI=kimi-k3 \
-  "$HELPER" exec --local kimi -- "$TARGET"
-assert_not_contains "$ERR" 'pinned to kimi-k3' "pinning the primary stays quiet"
+  CC_HARNESS_MODEL_SOL=gpt-6-sol \
+  "$HELPER" exec --local sol -- "$TARGET"
+assert_not_contains "$ERR" 'pinned to gpt-6-sol' "pinning the primary stays quiet"
 
 # …and it must stay a NO-OP, not just a quiet one. The resume path exports
 # CC_HARNESS_MODEL_<AGENT>=<the row's own primary>, which used to collapse every
@@ -1470,8 +1468,8 @@ assert_eq 0 "$RC" "resolve-model resolves a primary"
 assert_contains "$OUT" $'terra\tgpt-5.6-terra' "a shared-tier agent is named by its primary"
 
 setup_case
-run_capture "$HELPER" resolve-model kimi-k3-256k
-assert_contains "$OUT" $'kimi\tkimi-k3-256k' "resolve-model resolves a tier model"
+run_capture "$HELPER" resolve-model grok-composer-2.5-fast
+assert_contains "$OUT" $'grok\tgrok-composer-2.5-fast' "resolve-model resolves a tier model"
 
 # Every codex rung is also some codex row's primary, and an exact primary match
 # outranks a tier match. So a session that last answered on a rung resumes into
@@ -1494,9 +1492,10 @@ for retained in sol:gpt-5.6-sol luna:gpt-5.6-luna; do
 done
 
 # A RETIRED id must not be quietly remapped: a session recorded on
-# gpt-5.3-codex-spark or on a gpt id no row carries is refused, so the resume
-# path says it could not restore instead of pretending it did.
-for gone in gpt-5.3-codex-spark gpt-6-terra gpt-6.1-sol; do
+# gpt-5.3-codex-spark, on a gpt id no row carries, or on a dropped agent (kimi)
+# is refused, so the resume path says it could not restore instead of
+# pretending it did.
+for gone in gpt-5.3-codex-spark gpt-6-terra gpt-6.1-sol kimi-k3 kimi-k3-256k; do
   setup_case
   run_capture "$HELPER" resolve-model "$gone"
   assert_eq 1 "$RC" "resolve-model refuses $gone rather than remapping it"
