@@ -184,3 +184,38 @@ id without its row is refused), and a retained pin that swaps only the primary.
 semantics ported exactly, no tightening; the "vanished exact model" question
 stays with Robert. Next: the manager arranges the freeze; re-diff dotfiles HEAD
 once more inside it.
+
+## Cutover runbook (Robert said "freeze now", 2026-10-02)
+
+State at checkpoint: PR #4 open at `6d62bfb` (CI green, unreviewed); main
+checkout still at `12379bc`; dotfiles router files unchanged since `5eecae2`
+(helper, suite, `claude.zsh`, `cc-harness-resume`); `~/.config/cc-router/`
+does not exist yet; `~/.config/cliproxy/client.env` does.
+
+1. **Merge gate.** The symlink must point at the stable main checkout, never
+   this disposable worktree — so PR #4 is merged first (Robert), then
+   `git -C ~/Projekte/Plugins/cc-router pull`, `make check`, `make build`.
+2. **Freeze.** The manager session (now `cc-router-65`, earlier
+   `cc-router-48`) agrees the window with the dotfiles manager: no edits to
+   the router files until the swap is smoked or reverted.
+3. **Final re-diff** inside the freeze: dotfiles HEAD vs `5eecae2` for the four
+   router files; any delta is ported (as before) before the swap.
+4. **Config** for the author's setup: `~/.config/cc-router/config.env` with
+   `CC_ROUTER_REMOTE_URL=<the gateway URL>` and
+   `CC_ROUTER_LOCAL_PREPARE_HINT=run: cliproxy-auth prepare-local --mars-stopped`.
+   Secrets stay in the environment; the profile still comes from
+   `client.env`.
+5. **Staged check before the swap:** run the built binary with the real
+   environment (`list`, `resolve-model gpt-5.6-sol`) and the resume resolver
+   against a staged sibling link — not the live path.
+6. **ONE dotfiles commit:** replace `.scripts/cc-harness-agents` with a symlink
+   to `~/Projekte/Plugins/cc-router/bin/cc-harness-agents`. Stage ONLY that
+   path — dotfiles has unrelated uncommitted changes (settings, `.ssh/config`,
+   secrets). `cc-harness-resume` finds its helper as a sibling of its resolved
+   path, so it picks the symlink up unchanged. Open with the manager: what
+   happens to dotfiles' `scripts/test-cc-harness-agents.sh` (it now lives here).
+7. **Smokes:** `claude --grok`, `--astra`, `--sol` (live), work-system `list`
+   and `exec`, resume through the bridge, statusline quota.
+8. **Revert:** `git -C ~/dotfiles revert <cutover sha>` restores the bash
+   helper in one step.
+
