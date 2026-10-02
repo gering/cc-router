@@ -54,7 +54,10 @@ the cutover. Its acceptance criteria, agreed across both sides:
   member at all.
 - **Safe context windows**: verified per selected model or visibly unknown —
   never inherited across models, families or generations; in particular never
-  Astra's window onto Sol/Terra.
+  Astra's window onto Sol/Terra. One documented exception (Robert, 2026-10-02,
+  task codex-minor-discovery): a Codex minor
+  `gpt-<major>.<n>-<role>` inherits its verified major's window (372000 for 6),
+  never across majors.
 - **Transparent latest-policy per family**: Grok's "newest canonical with
   known-predecessor assumption" is Robert's explicit policy for Grok; the GPT
   families get their own documented selection policy in this task — no silent

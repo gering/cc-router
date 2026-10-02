@@ -97,6 +97,11 @@ func TestResolveModel(t *testing.T) {
 		// Superseded but still served: the former row, under its OWN id.
 		{"gpt-5.6-sol", "sol", "gpt-5.6-sol"},
 		{"gpt-5.6-luna", "luna", "gpt-5.6-luna"},
+		// A discoverable release resolves to the row whose primary shares
+		// its class, under its OWN id — no table edit, no retained entry.
+		{"gpt-6.1-sol", "sol", "gpt-6.1-sol"},
+		{"gpt-6.2-astra", "astra", "gpt-6.2-astra"},
+		{"gpt-6-terra", "terra", "gpt-6-terra"},
 		{"grok-4.6-build", "grok", "grok-4.6"},
 		{"grok-5.0-build", "grok", "grok-5.0"},
 		{"grok-9.9-experimental", "grok", "grok-9.9-experimental"},
@@ -112,9 +117,10 @@ func TestResolveModel(t *testing.T) {
 	// The family fallback is the only branch that echoes its input, and the
 	// result is a TSV field: an id that could not come from the table — a tab,
 	// a newline, a control byte — is refused rather than printed.
-	// A retired or not-yet-carried codex id is refused rather than remapped
-	// onto some gpt row, so the resume path says it could not restore.
-	for _, in := range []string{"gpt-5.3-codex-spark", "gpt-6-terra", "gpt-6.1-sol",
+	// A retired codex id, an unverified major or a variant is refused rather
+	// than remapped onto some gpt row, so the resume path says it could not
+	// restore.
+	for _, in := range []string{"gpt-5.3-codex-spark", "gpt-7-sol", "gpt-6.1-sol-preview", "gpt-6.1-nova",
 		"gpt-9.9-unknown", "claude-opus-5", "grok-4.6\tforged\trow", "grok-4.6\nforged", "grok-\x1b[2J", strings.Repeat("grok-4.6", 20)} {
 		if _, _, err := table.ResolveModel(in); err == nil {
 			t.Errorf("%q resolved", in)
