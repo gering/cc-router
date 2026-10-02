@@ -7,14 +7,15 @@ the deltas are summarized below).
 
 Counts are **assertion call sites**, not executed assertions: loops and
 `assert_secret_safe` (three checks) expand at run time. The suite here runs
-433 assertions (`tests/run`); upstream's figure included wrapper and parity
+435 assertions (`tests/run`); upstream's figure included wrapper and parity
 checks that stay in dotfiles.
 
 | Disposition | Sites |
 |---|---|
-| ported verbatim | 269 |
+| ported verbatim | 262 |
 | stays in dotfiles (wrapper, statusline parity, zsh functions) | 58 |
 | ported with a harness adaptation (noted per row) | 18 |
+| retargeted after the kimi row was removed (noted per row) | 7 |
 | replaced by an equivalent behavioural check | 5 |
 | retired (curl-specific, justified per row) | 2 |
 | **total** | **352** |
@@ -60,12 +61,20 @@ the retained list in a copy of the script; the list is policy in the binary,
 so here a user `models.tsv` drops the row instead (adapted). Every upstream
 site is mapped.
 
+**After the cutover: the kimi row is gone** (cc-router, 2026-10-02 — the Kimi
+subscription ended, so the route cannot work). No case is retired: every kimi
+case tested a mechanism that still exists, so each was retargeted to a row that
+still exercises it (rows marked *retargeted*). The kimi verified windows went
+with the row, and `kimi-k3`/`kimi-k3-256k` joined the resolve-model refusal
+loop (+2 sites): a historical kimi session is refused, which the resume bridge
+turns into the Anthropic default with a notice — no retained entry.
+
 | Upstream line | Assertion | Here |
 |---|---|---|
 | 318 | remote list succeeds | ported verbatim |
 | 319 | remote list probes exactly once | ported verbatim |
 | 320 | remote list marks a returned model available | ported verbatim |
-| 321 | remote list marks a missing model unavailable | ported verbatim |
+| 321 | remote list marks a missing model unavailable | retargeted: grok without its composer haiku rung (was kimi without kimi-k2.7-code) |
 | 322 | remote list emits every table row | ported verbatim |
 | 323 | a captured listing carries no header line | ported verbatim |
 | 338 | the wrapper has a --$agent selector | stays in dotfiles: row ↔ wrapper/statusline parity (wrapper and statusline are not extracted yet) |
@@ -323,7 +332,7 @@ site is mapped.
 | 1392 | a separator-bearing id does not displace the real candidate | ported verbatim |
 | 1393 | a separator-bearing id cannot forge another id's window | ported verbatim |
 | 1401 | a variant's advertised window is never believed | ported verbatim |
-| 1409 | an agent without discovery never reads catalog metadata | ported verbatim |
+| 1409 | an agent without discovery never reads catalog metadata | retargeted: sol pinned to the unmeasured gpt-5.5 (was kimi-k2.7-code) |
 | 1420 | a valid catalog below the last-known model selects its newest candidate | ported verbatim |
 | 1428 | exec follows a catalog below the last-known model | ported verbatim |
 | 1429 | exec exports what the catalog offers, not the stale last-known model | ported verbatim |
@@ -368,11 +377,11 @@ site is mapped.
 | 1605 | the local route honours an explicit override | ported verbatim |
 | 1606 | a verified override keeps its real ceiling on the local route | ported verbatim |
 | 1613 | the local route lists the deterministic pinned model | ported verbatim |
-| 1624 | a tier override execs | ported verbatim |
-| 1625 | the tier override reaches the environment | ported verbatim |
-| 1626 | a verified tier keeps its own real ceiling | ported verbatim |
+| 1624 | a tier override execs | retargeted: sol pinned to its terra rung (was kimi-k3-256k) |
+| 1625 | the tier override reaches the environment | retargeted: sol pinned to its terra rung (was kimi-k3-256k) |
+| 1626 | a verified tier keeps its own real ceiling | retargeted: gpt-5.6-terra at 372000 (was kimi-k3-256k at 262144) |
 | 1627 | a model the table declares is never called unverified | ported verbatim |
-| 1637 | pinning the primary stays quiet | ported verbatim |
+| 1637 | pinning the primary stays quiet | retargeted: sol pinned to gpt-6-sol (was kimi-k3) |
 | 1650 | pinning the astra primary execs | ported verbatim |
 | 1651 | the resumed primary is the pinned one | ported verbatim |
 | 1652 | pinning the primary leaves every rung on the table value | ported verbatim |
@@ -394,7 +403,7 @@ site is mapped.
 | 1719 | and the cap is stated | ported verbatim |
 | 1726 | resolve-model resolves a primary | ported verbatim |
 | 1727 | a shared-tier agent is named by its primary | ported verbatim |
-| 1731 | resolve-model resolves a tier model | ported verbatim |
+| 1731 | resolve-model resolves a tier model | retargeted: grok-composer-2.5-fast, the only rung that is no row's primary (was kimi-k3-256k) |
 | 1738 | resolve-model accepts the astra primary | ported verbatim |
 | 1739 | resolve-model maps the astra primary to its row | ported verbatim |
 | 1741 | the shared haiku rung resolves to luna's row | ported verbatim |

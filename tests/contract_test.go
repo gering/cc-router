@@ -97,7 +97,7 @@ func localHome(t *testing.T) (string, int) {
 		}
 	}
 	write(".cli-proxy-api/client.key", "local-token\n")
-	for _, cred := range []string{"xai", "kimi", "codex"} {
+	for _, cred := range []string{"xai", "codex"} {
 		write(".cli-proxy-api/"+cred+"-test.json", `{"access_token":"a","refresh_token":"r"}`)
 	}
 	expires := time.Now().Add(time.Hour).UTC().Format("2006-01-02T15:04:05Z")
@@ -135,7 +135,7 @@ func TestListIsFourColumnTSV(t *testing.T) {
 		}
 		names = append(names, f[0])
 	}
-	if got := strings.Join(names, " "); got != "cc-harness:grok cc-harness:kimi cc-harness:sol cc-harness:terra cc-harness:luna cc-harness:astra" {
+	if got := strings.Join(names, " "); got != "cc-harness:grok cc-harness:sol cc-harness:terra cc-harness:luna cc-harness:astra" {
 		t.Fatalf("rows = %s", got)
 	}
 }
