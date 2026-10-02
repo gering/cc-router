@@ -1,13 +1,12 @@
 # cc-router
 
-Run the Claude Code harness against foreign models — Grok, Kimi, the GPT-5.6
+Run the Claude Code harness against foreign models — Grok, the GPT
 tiers — through your own hosted [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI),
 with one flag:
 
 ```sh
 claude --grok     # the newest canonical Grok the gateway offers
-claude --kimi     # kimi-k3
-claude --sol      # gpt-5.6-sol
+claude --sol      # gpt-6-sol
 claude            # unchanged: Anthropic
 ```
 
@@ -87,7 +86,7 @@ not table data. `CC_HARNESS_MODEL_<AGENT>=<id>` pins one agent to a model.
 ## Why
 
 Claude Code speaks the Anthropic API. CLIProxyAPI translates that to OpenAI,
-xAI and Kimi, so one harness can drive any of them — but only if something sets
+xAI and others, so one harness can drive any of them — but only if something sets
 the right base URL, auth token, model, tier defaults and context ceiling for
 each provider. Doing that by hand per session is how you end up in a silently
 wrong backend.

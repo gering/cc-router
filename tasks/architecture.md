@@ -104,7 +104,7 @@ A running process cannot have its environment changed from outside. Four
 variables are set once by `exec` and frozen for the session:
 
 ```
-CLAUDE_CODE_MAX_CONTEXT_TOKENS   grok 500k | kimi 262k | codex rows 372k
+CLAUDE_CODE_MAX_CONTEXT_TOKENS   grok 500k | codex rows 372k
 ANTHROPIC_DEFAULT_{FABLE,OPUS,SONNET,HAIKU}_MODEL    the tier slots, per provider
 CLAUDE_CODE_SUBAGENT_MODEL
 ```

@@ -38,9 +38,9 @@ wrapper, statusline, `cliproxy-auth` and companion still live in the private
 
 ## What cc-router is
 
-A client that makes the Claude Code harness talk to foreign models (Grok, Kimi,
-GPT-5.6 tiers) through a self-hosted [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI),
-selected by flag: `claude --grok`, `--kimi`, `--sol`, plain `claude` stays
+A client that makes the Claude Code harness talk to foreign models (Grok,
+GPT tiers) through a self-hosted [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI),
+selected by flag: `claude --grok`, `--sol`, plain `claude` stays
 Anthropic. The laptop holds no OAuth credentials — only a revocable per-machine
 key.
 
