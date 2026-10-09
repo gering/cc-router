@@ -258,6 +258,19 @@ for arg in "$@"; do printf 'ARG=%s\n' "$arg"; done
 CAPTURE
 chmod +x "$TARGET"
 
+# The per-case remote environment as an array — `env -i` needs the words kept
+# apart, and an unquoted command substitution would leave that to word splitting.
+REMOTE_ENV=()
+set_remote_env() {
+  REMOTE_ENV=(
+    "HOME=$CASE_HOME" "TMPDIR=$CASE_DIR/tmp" "PATH=$COMMON_PATH"
+    "FAKE_CURL_COUNT_FILE=$CURL_COUNT" "FAKE_CURL_LOG_FILE=$CURL_LOG"
+    "CLIPROXY_API_KEY_TEST=remote-api-secret"
+    "CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret"
+    "CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret"
+  )
+}
+
 # The one catalog builder, used by the fixtures here AND by the discovery cases
 # further down. Defined before its first use.
 catalog_of() {
@@ -465,7 +478,8 @@ run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" 
   "$HELPER" list --local
 assert_eq 0 "$RC" "local list succeeds"
 assert_eq 0 "$(curl_calls)" "local list uses only the reachability probe"
-assert_contains "$OUT" $'cc-harness:sol\tgpt-6-sol\tyes\t-' "local list keeps provider availability checks"
+assert_contains "$OUT" $'cc-harness:terra\tgpt-5.6-terra\tyes\t-' "local list keeps provider availability checks"
+assert_contains "$OUT" $'cc-harness:sol\tgpt-6-sol\tyes\tgpt-6-sol is the last-known model, not current discovery (this route has no catalog)' "a local listing labels a discoverable codex primary as last-known"
 
 # Local mode retains the prior token, OAuth, gateway, and loopback bypass recipe.
 setup_case
@@ -691,23 +705,77 @@ for agent_model in astra:gpt-6-astra sol:gpt-6-sol terra:gpt-5.6-terra luna:gpt-
   assert_eq '' "$ERR" "$agent execs without a note (nothing selected, nothing assumed)"
 done
 
-# Variant, newer and hostile look-alikes of the codex ids. Codex has no
-# DISCOVERY row, so none of them may move a rung: new ids enter the table by a
-# deliberate, probed edit only (as gpt-6-sol/luna did), never because a catalog
-# listed them. Automatic newest-per-family selection belongs to cc-router's Go
-# core.
+# CODEX MINOR DISCOVERY. Within the verified major 6 each role (sol, terra,
+# luna, astra) takes the newest offered gpt-6[.n]-<role>; every minor inherits
+# the major's verified 372000. Variant, unverified-major and hostile look-alikes
+# move nothing.
 setup_case
 write_remote_profile TEST
-GPT6_CATALOG="$(catalog_of "${ALL_MODEL_IDS[@]}" gpt-6-sol-preview gpt-6.1-sol gpt-6.1-astra gpt-6-terra gpt-7-sol 'gpt-6-sol|999999')"
-run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
-  FAKE_CURL_COUNT_FILE="$CURL_COUNT" FAKE_CURL_LOG_FILE="$CURL_LOG" FAKE_CURL_BODY="$GPT6_CATALOG" \
-  CLIPROXY_API_KEY_TEST=remote-api-secret \
-  CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret \
-  CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret \
+set_remote_env
+CODEX_CATALOG="$(catalog_of "${ALL_MODEL_IDS[@]}" gpt-6-sol-preview gpt-6.1-sol-fast gpt-6.1-nova gpt-7-sol gpt-7.1-astra 'gpt-6-sol|999999')"
+run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_BODY="$CODEX_CATALOG" \
   "$HELPER" exec sol -- "$TARGET"
 assert_eq 0 "$RC" "a catalog with gpt-6 variants still execs sol"
-assert_contains "$OUT" $'MODEL=gpt-6-sol\nSUBAGENT=gpt-6-sol\nFABLE=gpt-6-astra\nOPUS=gpt-6-sol\nSONNET=gpt-5.6-terra\nHAIKU=gpt-6-luna' "catalog-only variants move no codex rung"
-assert_contains "$OUT" 'CONTEXT=372000' "catalog-only variants leave the ceiling alone"
+assert_contains "$OUT" $'MODEL=gpt-6-sol\nSUBAGENT=gpt-6-sol\nFABLE=gpt-6-astra\nOPUS=gpt-6-sol\nSONNET=gpt-5.6-terra\nHAIKU=gpt-6-luna' "variants and a 7.x move no codex rung"
+assert_contains "$OUT" 'CONTEXT=372000' "variants and a 7.x leave the ceiling alone"
+assert_eq '' "$ERR" "variants and a 7.x select nothing to report"
+
+# Only gpt-6.1-sol is new: the sol role moves in EVERY codex row (sol's
+# primary, the shared opus rung), and no other rung does.
+setup_case
+write_remote_profile TEST
+set_remote_env
+CODEX_CATALOG="$(catalog_of "${ALL_MODEL_IDS[@]}" gpt-6.1-sol)"
+run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_BODY="$CODEX_CATALOG" \
+  "$HELPER" exec sol -- "$TARGET"
+assert_eq 0 "$RC" "a served gpt-6.1-sol execs sol"
+assert_contains "$OUT" $'MODEL=gpt-6.1-sol\nSUBAGENT=gpt-6.1-sol\nFABLE=gpt-6-astra\nOPUS=gpt-6.1-sol\nSONNET=gpt-5.6-terra\nHAIKU=gpt-6-luna' "gpt-6.1-sol moves only the sol role"
+assert_contains "$OUT" 'CONTEXT=372000' "the minor inherits its major's window"
+assert_contains "$ERR" 'auto-selected gpt-6.1-sol (candidates: gpt-6.1-sol gpt-6-sol; last-known: gpt-6-sol)' "exec names the codex selection on stderr"
+run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_BODY="$CODEX_CATALOG" \
+  "$HELPER" exec terra -- "$TARGET"
+assert_contains "$OUT" $'MODEL=gpt-5.6-terra\nSUBAGENT=gpt-5.6-terra\nFABLE=gpt-6-astra\nOPUS=gpt-6.1-sol\nSONNET=gpt-5.6-terra\nHAIKU=gpt-6-luna' "the shared opus rung moves in another row too"
+run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_BODY="$CODEX_CATALOG" \
+  "$HELPER" list --no-header
+assert_contains "$OUT" $'cc-harness:sol\tgpt-6.1-sol\tyes\tauto-selected gpt-6.1-sol (candidates: gpt-6.1-sol gpt-6-sol; last-known: gpt-6-sol)' "list shows the newest served sol with the auto-selected note"
+assert_contains "$OUT" $'cc-harness:luna\tgpt-6-luna\tyes\tauto-selected gpt-6.1-sol' "a row whose primary stayed still names the moved rung"
+
+# Mixed minors: each role resolves on its own, and a first gpt-6 Terra
+# replaces the 5.6 one.
+setup_case
+write_remote_profile TEST
+set_remote_env
+CODEX_CATALOG="$(catalog_of "${ALL_MODEL_IDS[@]}" gpt-6.1-sol gpt-6.2-sol gpt-6.1-luna gpt-6.3-astra gpt-6-terra)"
+run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_BODY="$CODEX_CATALOG" \
+  "$HELPER" exec astra -- "$TARGET"
+assert_eq 0 "$RC" "mixed minors exec astra"
+assert_contains "$OUT" $'MODEL=gpt-6.3-astra\nSUBAGENT=gpt-6.3-astra\nFABLE=gpt-6.3-astra\nOPUS=gpt-6.2-sol\nSONNET=gpt-6-terra\nHAIKU=gpt-6.1-luna' "every role takes its own newest minor"
+assert_contains "$OUT" 'CONTEXT=372000' "the ceiling is still the smallest reachable rung"
+
+# RESUME. An old gpt-6-sol session pins the row's own primary — a no-op for
+# its role — and an explicit pin on a minor outranks a newer one. The other
+# roles keep discovering, so a retired last-known rung cannot strand a resume.
+setup_case
+write_remote_profile TEST
+set_remote_env
+CODEX_CATALOG="$(catalog_of "${ALL_MODEL_IDS[@]}" gpt-6.1-sol gpt-6.2-sol)"
+run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_BODY="$CODEX_CATALOG" \
+  CC_HARNESS_MODEL_SOL=gpt-6-sol \
+  "$HELPER" exec sol -- "$TARGET"
+assert_contains "$OUT" $'MODEL=gpt-6-sol\nSUBAGENT=gpt-6-sol\nFABLE=gpt-6-astra\nOPUS=gpt-6-sol\nSONNET=gpt-5.6-terra\nHAIKU=gpt-6-luna' "a gpt-6-sol session resumes on gpt-6-sol after 6.1 appears"
+run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_BODY="$CODEX_CATALOG" \
+  CC_HARNESS_MODEL_SOL=gpt-6.1-sol \
+  "$HELPER" exec sol -- "$TARGET"
+assert_contains "$OUT" $'MODEL=gpt-6.1-sol\nSUBAGENT=gpt-6.1-sol\nFABLE=gpt-6-astra\nOPUS=gpt-6.1-sol\nSONNET=gpt-5.6-terra\nHAIKU=gpt-6-luna' "a pinned minor outranks discovery and moves only its role"
+assert_contains "$OUT" 'CONTEXT=372000' "and keeps the inherited window"
+assert_not_contains "$ERR" 'context window unknown' "and nothing about it is unknown"
+run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_BODY="$(catalog_of gpt-6-astra gpt-6-sol gpt-6-terra gpt-6-luna)" \
+  CC_HARNESS_MODEL_SOL=gpt-6-sol \
+  "$HELPER" exec sol -- "$TARGET"
+assert_eq 0 "$RC" "a resume survives a retired last-known terra"
+assert_contains "$OUT" $'MODEL=gpt-6-sol\nSUBAGENT=gpt-6-sol\nFABLE=gpt-6-astra\nOPUS=gpt-6-sol\nSONNET=gpt-6-terra\nHAIKU=gpt-6-luna' "the pinned role stays, terra discovers"
+run_capture env -i HOME="$TMP_ROOT" PATH="/usr/bin:/bin" "$HELPER" resolve-model gpt-6.1-sol
+assert_eq $'sol\tgpt-6.1-sol' "$OUT" "resolve-model routes a discovered minor to its role, unrenamed"
 
 # A session recorded on a superseded Sol resumes on EXACTLY that model: the
 # resume path pins it, and the pin must neither be upgraded to gpt-6-sol nor
@@ -827,19 +895,6 @@ LIVE_GROK_IDS=(
 
 xai_catalog() {
   catalog_of "${LIVE_GROK_IDS[@]}" "$@"
-}
-
-# The per-case remote environment as an array — `env -i` needs the words kept
-# apart, and an unquoted command substitution would leave that to word splitting.
-REMOTE_ENV=()
-set_remote_env() {
-  REMOTE_ENV=(
-    "HOME=$CASE_HOME" "TMPDIR=$CASE_DIR/tmp" "PATH=$COMMON_PATH"
-    "FAKE_CURL_COUNT_FILE=$CURL_COUNT" "FAKE_CURL_LOG_FILE=$CURL_LOG"
-    "CLIPROXY_API_KEY_TEST=remote-api-secret"
-    "CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret"
-    "CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret"
-  )
 }
 
 # The whole live catalog resolves to the pinned model: not one of the 4.20
@@ -1201,8 +1256,9 @@ set_remote_env
 run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_STATUS=503 \
   "$HELPER" list --no-header
 assert_contains "$OUT" $'cc-harness:grok\tgrok-4.6\tno\tremote proxy origin unavailable (HTTP 503); grok-4.6 is the last-known model, not current discovery (catalog unavailable)' "an unavailable catalog labels the last-known model"
-assert_contains "$OUT" $'cc-harness:sol\tgpt-6-sol\tno\tremote proxy origin unavailable (HTTP 503)' "a row without discovery carries no fallback label"
-assert_not_contains "$(printf '%s\n' "$OUT" | grep '^cc-harness:sol')" 'last-known' "the label is not sprayed over rows that never discover"
+assert_contains "$OUT" $'cc-harness:sol\tgpt-6-sol\tno\tremote proxy origin unavailable (HTTP 503); gpt-6-sol is the last-known model, not current discovery (catalog unavailable)' "a discoverable codex primary is labelled too"
+assert_contains "$OUT" $'cc-harness:terra\tgpt-5.6-terra\tno\tremote proxy origin unavailable (HTTP 503)' "a primary outside the pattern carries no fallback label"
+assert_not_contains "$(printf '%s\n' "$OUT" | grep '^cc-harness:terra')" 'last-known' "the label is not sprayed over primaries discovery never picks"
 
 setup_case
 write_remote_profile TEST
@@ -1395,8 +1451,10 @@ assert_contains "$OUT" 'MODEL=gpt-6-astra' "the resumed primary is the pinned on
 assert_contains "$OUT" $'FABLE=gpt-6-astra\nOPUS=gpt-6-sol\nSONNET=gpt-5.6-terra\nHAIKU=gpt-6-luna' "pinning the primary leaves every rung on the table value"
 assert_contains "$OUT" 'CONTEXT=372000' "pinning the primary keeps the row ceiling"
 
-# The collapse itself is still correct for a DIFFERENT model: an override names
-# one reproducible model, so the rung that tracks the ladder follows it there.
+# A DIFFERENT model does move rungs: an override names one reproducible model
+# for the primary's class, so every rung the table put in that class follows it
+# (grok's previous rung collapses — see the composer case below). Codex's
+# other rungs are other roles, each its own class, and stay.
 setup_case
 write_local_credentials
 run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" \
@@ -1404,10 +1462,10 @@ run_capture env -i HOME="$CASE_HOME" TMPDIR="$CASE_DIR/tmp" PATH="$COMMON_PATH" 
   CC_HARNESS_MODEL_ASTRA=gpt-5.6-sol \
   "$HELPER" exec --local astra -- "$TARGET"
 assert_contains "$OUT" 'MODEL=gpt-5.6-sol' "an override to another model still wins"
-assert_contains "$OUT" 'SONNET=gpt-5.6-sol' "the tracking rung collapses onto a real override"
+assert_contains "$OUT" 'SONNET=gpt-5.6-terra' "a rung of another class (the Terra role) does not collapse"
 assert_contains "$OUT" 'FABLE=gpt-5.6-sol' "a rung equal to the replaced primary follows the override"
-# Rungs that equal neither the replaced primary nor its previous rung (here
-# astra's haiku, Luna) stay; the fable/opus rungs equal to the primary follow.
+# Rungs outside the replaced primary's class (here astra's haiku, Luna) stay;
+# the fable rung equal to the primary follows.
 assert_contains "$OUT" 'HAIKU=gpt-6-luna' "a rung pointed elsewhere is never rewritten"
 assert_contains "$OUT" 'CONTEXT=372000' "the override looks its own window up"
 
@@ -1494,9 +1552,10 @@ for retained in sol:gpt-5.6-sol luna:gpt-5.6-luna; do
 done
 
 # A RETIRED id must not be quietly remapped: a session recorded on
-# gpt-5.3-codex-spark or on a gpt id no row carries is refused, so the resume
-# path says it could not restore instead of pretending it did.
-for gone in gpt-5.3-codex-spark gpt-6-terra gpt-6.1-sol; do
+# gpt-5.3-codex-spark, an unverified major or a variant no pattern admits is
+# refused, so the resume path says it could not restore instead of pretending
+# it did.
+for gone in gpt-5.3-codex-spark gpt-7-sol gpt-6.1-sol-preview; do
   setup_case
   run_capture "$HELPER" resolve-model "$gone"
   assert_eq 1 "$RC" "resolve-model refuses $gone rather than remapping it"
