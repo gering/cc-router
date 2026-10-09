@@ -18,14 +18,12 @@
 #   provider  label for messages
 #
 # Every rung a user can reach with /model must hold max_ctx. The codex rows
-# hold that; grok (200000 composer under 500000) and kimi (unmeasured
-# kimi-k2.7-code) still carry a smaller haiku rung — a known exception, not a
-# pattern to copy. ~/.config/cc-router/models.tsv, when present, replaces this
-# file.
+# hold that; grok (200000 composer under 500000) still carries a smaller haiku
+# rung — a known exception, not a pattern to copy.
+# ~/.config/cc-router/models.tsv, when present, replaces this file.
 #
 # Values (verified against the route's catalog and measurements):
 #   grok-4.6        500000; the composer haiku rung is only 200k (haiku tier only)
-#   kimi-k3         262144 — the Kimi Code plan serves 256k, not the marketed 1M
 #   gpt-5.6-terra   372000 — the subscription cap
 #   gpt-6-sol/luna  372000 — floor-tested session budget, not a measured maximum
 #   gpt-6-astra     900000 measured, but exported as 372000: see the ladder
@@ -42,7 +40,6 @@
 # catalog lists them. Superseded ids the route still serves (gpt-5.6-sol/luna)
 # stay resumable through the binary's retained list, not through this table.
 grok	grok-4.6	grok-4.6	grok-4.6	grok-4.5	grok-composer-2.5-fast	500000	xai	-xai-login	xAI
-kimi	kimi-k3	kimi-k3	kimi-k3	kimi-k3-256k	kimi-k2.7-code	262144	kimi	-kimi-login	Kimi
 sol	gpt-6-sol	gpt-6-astra	gpt-6-sol	gpt-5.6-terra	gpt-6-luna	372000	codex	-codex-login	Codex
 terra	gpt-5.6-terra	gpt-6-astra	gpt-6-sol	gpt-5.6-terra	gpt-6-luna	372000	codex	-codex-login	Codex
 luna	gpt-6-luna	gpt-6-astra	gpt-6-sol	gpt-5.6-terra	gpt-6-luna	372000	codex	-codex-login	Codex

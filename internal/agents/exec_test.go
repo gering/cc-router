@@ -9,7 +9,7 @@ import (
 
 func TestRoutedEnv(t *testing.T) {
 	base := NewEnv([]string{"PATH=/bin", "CLAUDE_CODE_USE_BEDROCK=1", "ANTHROPIC_MODEL=old"})
-	eff := packagedRows(t)[5]
+	eff := packagedRow(t, "astra")
 	env := routedEnv(base, routing{route: "local", baseURL: "http://127.0.0.1:8317", token: "tok", headers: "X-A: 1", noProxy: "127.0.0.1,localhost"}, eff)
 	want := map[string]string{
 		"PATH": "/bin", "ANTHROPIC_BASE_URL": "http://127.0.0.1:8317", "ANTHROPIC_AUTH_TOKEN": "tok",
