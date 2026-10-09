@@ -95,7 +95,7 @@ func TestCodexDiscovery(t *testing.T) {
 		{"mixed minors per role", "terra", []string{"gpt-6.1-sol", "gpt-6.2-sol", "gpt-6.1-luna", "gpt-6.3-astra", "gpt-6-terra"},
 			"gpt-6-terra gpt-6.3-astra gpt-6.2-sol gpt-6-terra gpt-6.1-luna 372000", true},
 		{"7.x and variants ignored", "astra",
-			[]string{"gpt-7-sol", "gpt-7.1-astra", "gpt-6.1-sol-preview", "gpt-6-sol-fast", "gpt-6.1-nova", "GPT-6.1-luna", "gpt-6.99999-sol", "gpt-6.1"},
+			[]string{"gpt-7-sol", "gpt-7.1-astra", "gpt-6.1-sol-preview", "gpt-6-sol-fast", "gpt-6.1-nova", "GPT-6.1-luna", "gpt-6.99999-sol", "gpt-6.1", "gpt-6.0-sol", "gpt-6.01-sol"},
 			"gpt-6-astra gpt-6-astra gpt-6-sol gpt-5.6-terra gpt-6-luna 372000", false},
 	}
 	for _, c := range cases {
@@ -112,7 +112,7 @@ func TestCodexDiscovery(t *testing.T) {
 	if !strings.HasSuffix(got, " 128000") || !strings.Contains(note, "context window 128000 from catalog metadata, below major 6's 372000") {
 		t.Errorf("smaller catalog window = %s %q", got, note)
 	}
-	if _, note := codexLadder(t, "sol", "gpt-6.1-sol"); note != "auto-selected gpt-6.1-sol (candidates: gpt-6.1-sol gpt-6-sol; last-known: gpt-6-sol)" {
+	if _, note := codexLadder(t, "sol", "gpt-6.1-sol"); note != "auto-selected gpt-6.1-sol (candidates: gpt-6.1-sol gpt-6-sol; last-known: gpt-6-sol); context window 372000 inherited from major 6, not measured" {
 		t.Errorf("note = %q", note)
 	}
 }
@@ -121,7 +121,7 @@ func TestCodexResume(t *testing.T) {
 	rows := packagedRows(t)
 	sol := rows[2]
 	cat := &Catalog{State: catalogValid, IDs: strings.Fields("gpt-6-astra gpt-6-sol gpt-6.1-sol gpt-6.2-sol gpt-5.6-terra gpt-6-luna"), Context: map[string]int{}}
-	// An old gpt-6-sol session pins its own primary: a no-op, no discovery.
+	// An old gpt-6-sol session pins its own primary: a no-op for its class.
 	old := (&selector{env: NewEnv([]string{"CC_HARNESS_MODEL_SOL=gpt-6-sol"}), cat: cat}).Resolve(sol)
 	if got := old.Apply(sol); got != sol || old.Note != "" {
 		t.Fatalf("gpt-6-sol resume = %+v %q", got, old.Note)
@@ -133,8 +133,18 @@ func TestCodexResume(t *testing.T) {
 	if got.Model != "gpt-6.1-sol" || got.Opus != "gpt-6.1-sol" || got.Sonnet != "gpt-5.6-terra" || got.Haiku != "gpt-6-luna" || got.MaxCtx != 372000 {
 		t.Fatalf("gpt-6.1-sol resume = %+v", got)
 	}
-	if pin.Note != "pinned to gpt-6.1-sol via CC_HARNESS_MODEL_SOL" {
+	if pin.Note != "pinned to gpt-6.1-sol via CC_HARNESS_MODEL_SOL; context window 372000 inherited from major 6, not measured" {
 		t.Fatalf("note = %q", pin.Note)
+	}
+	// The other roles keep discovering under a pin: a retired last-known
+	// gpt-5.6-terra must not take a resumed row down.
+	retired := &Catalog{State: catalogValid, IDs: strings.Fields("gpt-6-astra gpt-6-sol gpt-6.1-sol gpt-6.2-sol gpt-6-terra gpt-6-luna"), Context: map[string]int{}}
+	for _, pinTo := range []string{"gpt-6-sol", "gpt-6.1-sol"} {
+		sel := (&selector{env: NewEnv([]string{"CC_HARNESS_MODEL_SOL=" + pinTo}), cat: retired}).Resolve(sol)
+		got := sel.Apply(sol)
+		if got.Model != pinTo || got.Opus != pinTo || got.Sonnet != "gpt-6-terra" || got.MaxCtx != 372000 || !strings.Contains(sel.Note, "auto-selected gpt-6-terra") {
+			t.Errorf("%s resume, terra retired = %+v %q", pinTo, got, sel.Note)
+		}
 	}
 }
 

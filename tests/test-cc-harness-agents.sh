@@ -752,8 +752,9 @@ assert_eq 0 "$RC" "mixed minors exec astra"
 assert_contains "$OUT" $'MODEL=gpt-6.3-astra\nSUBAGENT=gpt-6.3-astra\nFABLE=gpt-6.3-astra\nOPUS=gpt-6.2-sol\nSONNET=gpt-6-terra\nHAIKU=gpt-6.1-luna' "every role takes its own newest minor"
 assert_contains "$OUT" 'CONTEXT=372000' "the ceiling is still the smallest reachable rung"
 
-# RESUME. An old gpt-6-sol session pins the row's own primary — a no-op that
-# also skips discovery — and an explicit pin on a minor outranks a newer one.
+# RESUME. An old gpt-6-sol session pins the row's own primary — a no-op for
+# its role — and an explicit pin on a minor outranks a newer one. The other
+# roles keep discovering, so a retired last-known rung cannot strand a resume.
 setup_case
 write_remote_profile TEST
 set_remote_env
@@ -768,6 +769,11 @@ run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_BODY="$CODEX_CATALOG" \
 assert_contains "$OUT" $'MODEL=gpt-6.1-sol\nSUBAGENT=gpt-6.1-sol\nFABLE=gpt-6-astra\nOPUS=gpt-6.1-sol\nSONNET=gpt-5.6-terra\nHAIKU=gpt-6-luna' "a pinned minor outranks discovery and moves only its role"
 assert_contains "$OUT" 'CONTEXT=372000' "and keeps the inherited window"
 assert_not_contains "$ERR" 'context window unknown' "and nothing about it is unknown"
+run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_BODY="$(catalog_of gpt-6-astra gpt-6-sol gpt-6-terra gpt-6-luna)" \
+  CC_HARNESS_MODEL_SOL=gpt-6-sol \
+  "$HELPER" exec sol -- "$TARGET"
+assert_eq 0 "$RC" "a resume survives a retired last-known terra"
+assert_contains "$OUT" $'MODEL=gpt-6-sol\nSUBAGENT=gpt-6-sol\nFABLE=gpt-6-astra\nOPUS=gpt-6-sol\nSONNET=gpt-6-terra\nHAIKU=gpt-6-luna' "the pinned role stays, terra discovers"
 run_capture env -i HOME="$TMP_ROOT" PATH="/usr/bin:/bin" "$HELPER" resolve-model gpt-6.1-sol
 assert_eq $'sol\tgpt-6.1-sol' "$OUT" "resolve-model routes a discovered minor to its role, unrenamed"
 

@@ -7,7 +7,7 @@ the deltas are summarized below).
 
 Counts are **assertion call sites**, not executed assertions: loops and
 `assert_secret_safe` (three checks) expand at run time. The suite here runs
-451 assertions (`tests/run`); upstream's figure included wrapper and parity
+453 assertions (`tests/run`); upstream's figure included wrapper and parity
 checks that stay in dotfiles.
 
 | Disposition | Sites |
@@ -64,7 +64,7 @@ site is mapped.
 **Changed here after the cutover** (cc-router, 2026-10-02, Codex minor
 discovery): within the verified major 6 every Codex role takes the newest
 offered `gpt-6[.n]-<role>` and inherits 372000; an override moves only the
-rungs in the replaced primary's class. Rows marked *amended* below assert the
+rungs in the replaced primary's class, and the other roles keep discovering. Rows marked *amended* below assert the
 new behaviour; the codex discovery, resume and resolve-model cases were added.
 
 | Upstream line | Assertion | Here |

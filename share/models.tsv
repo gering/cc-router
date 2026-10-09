@@ -8,7 +8,7 @@
 #             unset, picking it sends a claude-fable id to the gateway, out of
 #             the routed family, so every row names one.
 #   opus      ANTHROPIC_DEFAULT_OPUS_MODEL
-#   sonnet    ANTHROPIC_DEFAULT_SONNET_MODEL (the "previous rung" discovery moves)
+#   sonnet    ANTHROPIC_DEFAULT_SONNET_MODEL
 #   haiku     ANTHROPIC_DEFAULT_HAIKU_MODEL
 #   max_ctx   CLAUDE_CODE_MAX_CONTEXT_TOKENS — ONE number per session, applied
 #             to whichever model is active, including after /model. Too low
@@ -36,9 +36,9 @@
 # session-wide, so the ceiling is 372000 for all four, astra included: its own
 # 900000 over a Luna rung is one /model away from an upstream overflow that
 # auto-compact never prevents. The shared ladder couples availability on
-# purpose: a route that stops serving any of the four ids takes all four rows
-# down, naming the id, because a row must never publish a rung the route
-# cannot serve. The ids here are the LAST-KNOWN ladder: on the remote route
+# purpose: a route that serves no member of one role takes all four rows down,
+# naming the id, because a row must never publish a rung the route cannot
+# serve. The ids here are the LAST-KNOWN ladder: on the remote route
 # each role (sol/terra/luna/astra) takes the newest offered gpt-6[.n]-<role>,
 # inheriting major 6's 372000, so a new minor needs no edit here. A new major
 # does: it enters the binary's pattern only with a measured window. Any served

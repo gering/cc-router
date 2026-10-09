@@ -82,7 +82,9 @@ ceiling, credential prefix, login flag, provider). `~/.config/cc-router/models.t
 **replaces** it entirely — copy the packaged file and edit it; new packaged
 rows then need merging by hand. An invalid table is refused, never partially
 used. Catalog discovery (Grok releases, Codex minors per role) and the
-verified context windows are policy in the code, not table data. `CC_HARNESS_MODEL_<AGENT>=<id>` pins one agent to a model.
+verified context windows are policy in the code, not table data.
+`CC_HARNESS_MODEL_<AGENT>=<id>` pins one agent's primary to a model; the other
+roles keep discovering.
 
 ## Why
 
