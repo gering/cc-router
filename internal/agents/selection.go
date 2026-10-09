@@ -47,7 +47,9 @@ var (
 	discovery = map[string]family{
 		"xai": {pattern: regexp.MustCompile(`^grok-(4|5)\.[0-9]+$`), catalogCap: 500000},
 		"codex": {
-			pattern:      regexp.MustCompile(`^gpt-6(\.[0-9]+)?-(sol|terra|luna|astra)$`),
+			// No gpt-6.0-<role>: an alias of gpt-6-<role> would tie with it,
+			// and the pick would follow the catalog's response order.
+			pattern:      regexp.MustCompile(`^gpt-6(\.[1-9][0-9]*)?-(sol|terra|luna|astra)$`),
 			majorContext: map[string]int{"6": 372000},
 		},
 	}
@@ -266,7 +268,7 @@ func (s *selector) modelContext(cred, id string) (ctx int, note string, ok bool)
 		if c, ok := s.cat.Context[id]; ok && c < ctx {
 			return c, fmt.Sprintf("; context window %d from catalog metadata, below major %s's %d", c, major, ctx), true
 		}
-		return ctx, "", true
+		return ctx, fmt.Sprintf("; context window %d inherited from major %s, not measured", ctx, major), true
 	}
 	if fam.catalogCap == 0 {
 		return 0, "", false
@@ -390,89 +392,64 @@ func classes(r Row) [][]string {
 // Resolve computes one row's effective model. It runs once per invocation,
 // before exec, and the result is exported as a literal id.
 func (s *selector) Resolve(r Row) Selection {
-	sel := Selection{Model: r.Model, MaxCtx: r.MaxCtx}
-	variable := overrideVar(r.Name)
-	if override := s.env.Get(variable); override != "" {
-		switch {
-		case strings.ContainsAny(override, " \t\n\v\f\r") || hasControl(override) || !modelIDRe.MatchString(override):
-			// Exported, it would 404 the whole session as a nonsense model id.
-			sel.Note = fmt.Sprintf("%s is malformed — ignored, using %s", variable, r.Model)
-		case override == r.Model:
-			// Pinning the row's OWN primary is a no-op, not a ladder move:
-			// the resume path pins the recorded primary, and collapsing the
-			// tiers there silently changed a resumed session's sonnet rung.
-		default:
-			// One reproducible model: the primary's rungs and the previous
-			// rung follow it, with the ceiling of THAT model — sharing a row
-			// is not sharing a window. A previous rung that is another ROLE
-			// (codex's Terra under Sol) stays: before a newer release or the
-			// rung swap, a retained or discovered pin WAS the primary, and
-			// that rung was not tracking it. The ceiling is never RAISED
-			// above the row's: the rungs that stay are reachable with /model,
-			// and the row ceiling is what they were sized against.
-			ctx, note := s.ceiling(r.Cred, override)
-			if known, _, ok := s.modelContext(r.Cred, override); ok && known > r.MaxCtx {
-				ctx = r.MaxCtx
-				note = fmt.Sprintf("; context window capped at the row ceiling %d (its own window %d exceeds a reachable rung)", r.MaxCtx, known)
-			}
-			sel = Selection{Model: override, MaxCtx: ctx, moves: map[string]string{},
-				Note: fmt.Sprintf("pinned to %s via %s%s", override, variable, note)}
-			sel.moves[r.Model] = override
-			if !otherRole(r.Sonnet, r.Model) {
-				sel.moves[r.Sonnet] = override
-			}
-		}
-		return sel
-	}
-
-	fam, ok := discovery[r.Cred]
-	if !ok {
-		return sel
-	}
-	// Only a primary the family could have discovered is "last-known"; a
-	// row standing on an id outside the pattern (gpt-5.6-terra) is the table's.
-	discoverable := isCandidate(fam.pattern, r.Model)
-	lastKnown := r.Model + " is the last-known model, not current discovery"
-	switch {
-	case s.cat.State == catalogStale && discoverable:
-		sel.Note = lastKnown + " (catalog unavailable)"
-	case s.cat.State == catalogNone && discoverable:
-		sel.Note = lastKnown + " (this route has no catalog)"
-	}
-	if s.cat.State != catalogValid {
-		return sel
-	}
-
-	sel.moves = map[string]string{}
+	sel := Selection{Model: r.Model, MaxCtx: r.MaxCtx, moves: map[string]string{}}
 	var notes []string
-	ceiling := 0 // the session's: the smallest window among the placed rungs
-	for _, ids := range classes(r) {
-		cls, below, bound := class(ids[0]), "", 0
-		for i, id := range ids {
-			// A class's newest rung is unconstrained and may LOWER the
-			// ceiling; a rung below it must hold the ceiling as it stands.
-			pick := s.highest(r.Cred, cls, below, bound)
-			if pick == "" && i == 0 {
-				// A valid catalog without a candidate is an answer: nothing
-				// is substituted, and the availability check reports the
-				// table id missing.
-				if id == r.Model && discoverable {
-					notes = append(notes, fmt.Sprintf("catalog offers no canonical %s model — %s", r.Name, lastKnown))
+	ceiling := 0                // the session's: the smallest window among the placed rungs
+	pinned := map[string]bool{} // classes a pin placed; discovery leaves them alone
+	variable := overrideVar(r.Name)
+	switch override := s.env.Get(variable); {
+	case override == "":
+	case strings.ContainsAny(override, " \t\n\v\f\r") || hasControl(override) || !modelIDRe.MatchString(override):
+		// Exported, it would 404 the whole session as a nonsense model id.
+		sel.Note = fmt.Sprintf("%s is malformed — ignored, using %s", variable, r.Model)
+		return sel
+	case override == r.Model:
+		// Pinning the row's OWN primary is a no-op, not a ladder move:
+		// the resume path pins the recorded primary, and collapsing the
+		// tiers there silently changed a resumed session's sonnet rung.
+		pinned[class(r.Model)] = true
+	default:
+		// One reproducible model: the primary's rungs and the previous
+		// rung follow it, with the ceiling of THAT model — sharing a row
+		// is not sharing a window. A previous rung that is another ROLE
+		// (codex's Terra under Sol) stays: before a newer release or the
+		// rung swap, a retained or discovered pin WAS the primary, and
+		// that rung was not tracking it. The ceiling is never RAISED
+		// above the row's: the rungs that stay are reachable with /model,
+		// and the row ceiling is what they were sized against.
+		ctx, note := s.ceiling(r.Cred, override)
+		if known, _, ok := s.modelContext(r.Cred, override); ok && known > r.MaxCtx {
+			ctx = r.MaxCtx
+			note = fmt.Sprintf("; context window capped at the row ceiling %d (its own window %d exceeds a reachable rung)", r.MaxCtx, known)
+		}
+		ceiling = ctx
+		notes = append(notes, fmt.Sprintf("pinned to %s via %s%s", override, variable, note))
+		sel.moves[r.Model] = override
+		pinned[class(r.Model)] = true
+		if !otherRole(r.Sonnet, r.Model) {
+			sel.moves[r.Sonnet] = override
+			pinned[class(r.Sonnet)] = true
+		}
+	}
+
+	// The other roles still discover under a pin: their table ids are only
+	// last-known, and a retired one would take the pinned row down.
+	if fam, ok := discovery[r.Cred]; ok {
+		// Only a primary the family could have discovered is "last-known"; a
+		// row standing on an id outside the pattern (gpt-5.6-terra) is the table's.
+		discoverable := isCandidate(fam.pattern, r.Model) && len(pinned) == 0
+		lastKnown := r.Model + " is the last-known model, not current discovery"
+		switch {
+		case s.cat.State == catalogStale && discoverable:
+			notes = append(notes, lastKnown+" (catalog unavailable)")
+		case s.cat.State == catalogNone && discoverable:
+			notes = append(notes, lastKnown+" (this route has no catalog)")
+		case s.cat.State == catalogValid:
+			for _, ids := range classes(r) {
+				if !pinned[class(ids[0])] {
+					notes = append(notes, s.place(r, ids, &ceiling, sel.moves, discoverable, lastKnown)...)
 				}
-				break
 			}
-			if pick == "" {
-				pick = below // nothing lower holds the ceiling: share the rung above
-			}
-			sel.moves[id] = pick
-			ctx, note := s.ceiling(r.Cred, pick)
-			if ceiling == 0 || ctx < ceiling {
-				ceiling = ctx
-			}
-			if i == 0 && (pick != id || note != "") {
-				notes = append(notes, fmt.Sprintf("auto-selected %s (candidates: %s; last-known: %s)%s", pick, s.candidates(r.Cred, cls), id, note))
-			}
-			below, bound = pick, ceiling
 		}
 	}
 	if m, ok := sel.moves[r.Model]; ok {
@@ -485,6 +462,40 @@ func (s *selector) Resolve(r Row) Selection {
 	}
 	sel.Note = strings.Join(notes, "; ")
 	return sel
+}
+
+// place resolves one class of the row's ladder into moves, lowering the
+// session ceiling, and returns the notes it owes.
+func (s *selector) place(r Row, ids []string, ceiling *int, moves map[string]string, discoverable bool, lastKnown string) []string {
+	var notes []string
+	cls, below, bound := class(ids[0]), "", 0
+	for i, id := range ids {
+		// A class's newest rung is unconstrained and may LOWER the
+		// ceiling; a rung below it must hold the ceiling as it stands.
+		pick := s.highest(r.Cred, cls, below, bound)
+		if pick == "" && i == 0 {
+			// A valid catalog without a candidate is an answer: nothing
+			// is substituted, and the availability check reports the
+			// table id missing.
+			if id == r.Model && discoverable {
+				notes = append(notes, fmt.Sprintf("catalog offers no canonical %s model — %s", r.Name, lastKnown))
+			}
+			break
+		}
+		if pick == "" {
+			pick = below // nothing lower holds the ceiling: share the rung above
+		}
+		moves[id] = pick
+		ctx, note := s.ceiling(r.Cred, pick)
+		if *ceiling == 0 || ctx < *ceiling {
+			*ceiling = ctx
+		}
+		if i == 0 && (pick != id || note != "") {
+			notes = append(notes, fmt.Sprintf("auto-selected %s (candidates: %s; last-known: %s)%s", pick, s.candidates(r.Cred, cls), id, note))
+		}
+		below, bound = pick, *ceiling
+	}
+	return notes
 }
 
 // Apply pushes a selection into the row. A tier moves only where the TABLE
