@@ -19,8 +19,8 @@
 #
 # Every rung a user can reach with /model must hold max_ctx. The codex rows
 # hold that; grok (200000 composer under 500000) still carries a smaller haiku
-# rung — a known exception, not a pattern to copy. ~/.config/cc-router/models.tsv, when present, replaces this
-# file.
+# rung — a known exception, not a pattern to copy.
+# ~/.config/cc-router/models.tsv, when present, replaces this file.
 #
 # Values (verified against the route's catalog and measurements):
 #   grok-4.6        500000; the composer haiku rung is only 200k (haiku tier only)

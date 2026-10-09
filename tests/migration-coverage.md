@@ -64,10 +64,12 @@ site is mapped.
 **After the cutover: the kimi row is gone** (cc-router, 2026-10-02 — the Kimi
 subscription ended, so the route cannot work). No case is retired: every kimi
 case tested a mechanism that still exists, so each was retargeted to a row that
-still exercises it (rows marked *retargeted*). The kimi verified windows went
-with the row, and `kimi-k3`/`kimi-k3-256k` joined the resolve-model refusal
-loop (+2 sites): a historical kimi session is refused, which the resume bridge
-turns into the Anthropic default with a notice — no retained entry.
+still exercises it (rows marked *retargeted*). The kimi verified windows stay:
+they describe the models, not the packaged row, so a user `models.tsv` that
+keeps a kimi row keeps its real ceiling. `kimi-k3`/`kimi-k3-256k` joined the
+existing resolve-model refusal loop (same call site, +2 runtime assertions): a
+historical kimi session is refused, which the resume bridge turns into the
+Anthropic default with a notice — no retained entry.
 
 | Upstream line | Assertion | Here |
 |---|---|---|
@@ -403,7 +405,7 @@ turns into the Anthropic default with a notice — no retained entry.
 | 1719 | and the cap is stated | ported verbatim |
 | 1726 | resolve-model resolves a primary | ported verbatim |
 | 1727 | a shared-tier agent is named by its primary | ported verbatim |
-| 1731 | resolve-model resolves a tier model | retargeted: grok-composer-2.5-fast, the only rung that is no row's primary (was kimi-k3-256k) |
+| 1731 | resolve-model resolves a tier model | retargeted: grok-composer-2.5-fast, a rung that is no row's primary (was kimi-k3-256k) |
 | 1738 | resolve-model accepts the astra primary | ported verbatim |
 | 1739 | resolve-model maps the astra primary to its row | ported verbatim |
 | 1741 | the shared haiku rung resolves to luna's row | ported verbatim |

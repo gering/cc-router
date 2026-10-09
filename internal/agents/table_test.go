@@ -20,6 +20,17 @@ func packagedRows(t *testing.T) []Row {
 	return rows
 }
 
+// packagedRow picks a packaged row by name, so adding or dropping a row never
+// renumbers the tests that use it.
+func packagedRow(t *testing.T, name string) Row {
+	t.Helper()
+	r, ok := (&Table{Rows: packagedRows(t)}).Find(name)
+	if !ok {
+		t.Fatalf("packaged table has no %s row", name)
+	}
+	return r
+}
+
 func TestPackagedTable(t *testing.T) {
 	rows := packagedRows(t)
 	var names []string

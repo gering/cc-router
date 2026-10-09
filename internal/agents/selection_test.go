@@ -44,8 +44,7 @@ func TestCandidates(t *testing.T) {
 }
 
 func TestResolveOverrideAndLadder(t *testing.T) {
-	rows := packagedRows(t)
-	grok, sol, astra := rows[0], rows[1], rows[4]
+	grok, sol, astra := packagedRow(t, "grok"), packagedRow(t, "sol"), packagedRow(t, "astra")
 	catalog := &Catalog{State: catalogValid, IDs: strings.Fields("grok-4.5 grok-4.6 grok-4.8 grok-composer-2.5-fast"), Context: map[string]int{}}
 
 	sel := (&selector{env: NewEnv(nil), cat: catalog}).Resolve(grok)
