@@ -247,8 +247,8 @@ func (t *Table) logins() string {
 // the table's only machine-readable reader for other tools (cc-harness-resume
 // once regex-scraped the bash source instead): pure lookup, no probe, no
 // network, no credentials. Matching order: exact primary, exact tier (only
-// while every claimant routes identically), then a vendor-prefix family
-// claimed by exactly one agent.
+// while every claimant routes identically), retained id, discoverable
+// release, then a vendor-prefix family claimed by exactly one agent.
 func (t *Table) ResolveModel(wanted string) (agent, model string, err error) {
 	original := wanted
 	// xAI answers name build ids while the proxy exposes the canonical alias.
@@ -285,6 +285,13 @@ func (t *Table) ResolveModel(wanted string) (agent, model string, err error) {
 		}
 		return "", "", fail(exitUnavailable, "model %s is retained for agent %s, which no longer exists", oneLine(original), agent)
 	}
+	// A release a family could discover resolves to the one row whose primary
+	// shares its class, so a session recorded on gpt-6.1-sol resumes on sol
+	// without a table edit. A 7.x or variant id fails the pattern and is left
+	// to the family fallback, which the packaged table's four gpt rows refuse.
+	if agent, ok := t.discovered(wanted); ok {
+		return agent, wanted, nil
+	}
 	// The family fallback is the only branch that echoes its INPUT rather than
 	// a table value, and the result is a TSV field cc-harness-resume parses.
 	if !modelIDRe.MatchString(wanted) {
@@ -302,4 +309,21 @@ func (t *Table) ResolveModel(wanted string) (agent, model string, err error) {
 		return hit, wanted, nil
 	}
 	return "", "", fail(exitUnavailable, "no routing profile for model %s", oneLine(original))
+}
+
+// discovered is the single row whose family pattern admits id and whose
+// primary is in id's class.
+func (t *Table) discovered(id string) (string, bool) {
+	hit := ""
+	for _, r := range t.Rows {
+		fam, ok := discovery[r.Cred]
+		if !ok || !isCandidate(fam.pattern, id) || class(r.Model) != class(id) {
+			continue
+		}
+		if hit != "" {
+			return "", false
+		}
+		hit = r.Name
+	}
+	return hit, hit != ""
 }

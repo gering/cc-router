@@ -47,6 +47,9 @@ the cutover. Its acceptance criteria, agreed across both sides:
   **newest served member of its own family**. Majors may differ across rungs;
   a mixed generation (gpt-6-astra over 5.6 sol/terra/luna) is legal and is the
   current reality. Same-major uniformity is explicitly NOT a requirement.
+  Narrowed for Codex (Robert, 2026-10-02, task codex-minor-discovery): a rung
+  auto-selects only within a verified major (today 6); a new major enters with
+  its measured window, never by discovery alone.
 - **No stale foreign dependencies** (this is what "no borrowed rungs" means):
   a row must never become unavailable because a pinned id *outside* the four
   families (spark-class) or an outdated pinned member vanished while a valid
@@ -54,7 +57,10 @@ the cutover. Its acceptance criteria, agreed across both sides:
   member at all.
 - **Safe context windows**: verified per selected model or visibly unknown —
   never inherited across models, families or generations; in particular never
-  Astra's window onto Sol/Terra.
+  Astra's window onto Sol/Terra. One documented exception (Robert, 2026-10-02,
+  task codex-minor-discovery): a Codex minor
+  `gpt-<major>.<n>-<role>` inherits its verified major's window (372000 for 6),
+  never across majors.
 - **Transparent latest-policy per family**: Grok's "newest canonical with
   known-predecessor assumption" is Robert's explicit policy for Grok; the GPT
   families get their own documented selection policy in this task — no silent
@@ -80,8 +86,9 @@ to the Anthropic default with a notice. Which applies to a retired exact model?
 
 ## Current friction
 The routing helper embeds a profile table while the zsh wrapper separately lists
-model flags. Dynamic discovery is currently special-cased for Grok; new GPT models
-still require client edits even when the proxy already serves them. Context limits
+model flags. Dynamic discovery covers Grok releases and Codex minors within a
+verified major; a new GPT major or role still requires a client edit even when the
+proxy already serves it. Context limits
 and tier defaults require verification independent of catalog presence. Provider
 response names may differ from advertised aliases (e.g. Grok's -build suffix).
 

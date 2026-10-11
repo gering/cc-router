@@ -7,12 +7,13 @@ the deltas are summarized below).
 
 Counts are **assertion call sites**, not executed assertions: loops and
 `assert_secret_safe` (three checks) expand at run time. The suite here runs
-435 assertions (`tests/run`); upstream's figure included wrapper and parity
+455 assertions (`tests/run`); upstream's figure included wrapper and parity
 checks that stay in dotfiles.
 
 | Disposition | Sites |
 |---|---|
-| ported verbatim | 262 |
+| ported verbatim | 255 |
+| ported, amended after the cutover (Codex minor discovery) | 7 |
 | stays in dotfiles (wrapper, statusline parity, zsh functions) | 58 |
 | ported with a harness adaptation (noted per row) | 18 |
 | retargeted after the kimi row was removed (noted per row) | 7 |
@@ -71,6 +72,13 @@ existing resolve-model refusal loop (same call site, +2 runtime assertions): a
 historical kimi session is refused, which the resume bridge turns into the
 Anthropic default with a notice — no retained entry.
 
+**Changed here after the cutover** (cc-router, 2026-10-02, Codex minor
+discovery): within the verified major 6 every Codex role takes the newest
+offered `gpt-6[.n]-<role>` and inherits 372000; an override moves only the
+rungs in the replaced primary's class, and the other roles keep discovering.
+Rows marked *amended* below assert the new behaviour; the codex discovery,
+resume and resolve-model cases were added.
+
 | Upstream line | Assertion | Here |
 |---|---|---|
 | 318 | remote list succeeds | ported verbatim |
@@ -127,7 +135,7 @@ Anthropic default with a notice — no retained entry.
 | 484 | remote header $header_case error hides secrets | ported verbatim |
 | 493 | local list succeeds | ported verbatim |
 | 494 | local list uses only the reachability probe | ported verbatim |
-| 495 | local list keeps provider availability checks | ported verbatim |
+| 495 | local list keeps provider availability checks | amended: asserted on terra (sol now carries the last-known label) |
 | 506 | local exec succeeds | ported verbatim |
 | 507 | local exec uses only the reachability probe | ported verbatim |
 | 508 | local exec exports the loopback gateway | ported; asserts the test gateway port instead of the fixed 8317 |
@@ -183,8 +191,8 @@ Anthropic default with a notice — no retained entry.
 | 714 | $agent exports the smallest rung's window | ported verbatim |
 | 715 | $agent execs without a note (nothing selected, nothing assumed) | ported verbatim |
 | 732 | a catalog with gpt-6 variants still execs sol | ported verbatim |
-| 733 | catalog-only variants move no codex rung | ported verbatim |
-| 734 | catalog-only variants leave the ceiling alone | ported verbatim |
+| 733 | catalog-only variants move no codex rung | amended: variants and a 7.x move no codex rung (gpt-6.1-sol now does) |
+| 734 | catalog-only variants leave the ceiling alone | amended: variants and a 7.x leave the ceiling alone |
 | 749 | a pinned superseded sol still execs while served | ported verbatim |
 | 750 | the superseded pin is not upgraded | ported verbatim |
 | 753 | a retained pin swaps the primary and keeps the other rungs | ported verbatim |
@@ -345,8 +353,8 @@ Anthropic default with a notice — no retained entry.
 | 1450 | nothing is exec'd on a last-known model the route does not offer | ported verbatim |
 | 1451 | the refusal names the fallback for what it is | ported verbatim |
 | 1460 | an unavailable catalog labels the last-known model | ported verbatim |
-| 1461 | a row without discovery carries no fallback label | ported verbatim |
-| 1462 | the label is not sprayed over rows that never discover | ported verbatim |
+| 1461 | a row without discovery carries no fallback label | amended: terra (primary outside the pattern); sol is labelled |
+| 1462 | the label is not sprayed over rows that never discover | amended: asserted on terra |
 | 1469 | an unparsable catalog is stale, not empty | ported verbatim |
 | 1476 | exec never runs on a stale catalog | ported verbatim |
 | 1477 | no model is exported without a catalog on the remote route | ported verbatim |
@@ -389,7 +397,7 @@ Anthropic default with a notice — no retained entry.
 | 1652 | pinning the primary leaves every rung on the table value | ported verbatim |
 | 1653 | pinning the primary keeps the row ceiling | ported verbatim |
 | 1663 | an override to another model still wins | ported verbatim |
-| 1664 | the tracking rung collapses onto a real override | ported verbatim |
+| 1664 | the tracking rung collapses onto a real override | amended: the Terra rung is another class and stays |
 | 1665 | a rung equal to the replaced primary follows the override | ported verbatim |
 | 1668 | a rung pointed elsewhere is never rewritten | ported verbatim |
 | 1669 | the override looks its own window up | ported verbatim |
@@ -411,7 +419,7 @@ Anthropic default with a notice — no retained entry.
 | 1741 | the shared haiku rung resolves to luna's row | ported verbatim |
 | 1749 | resolve-model keeps ${retained#*:} resumable | ported verbatim |
 | 1750 | ${retained#*:} resolves to its former row, unrenamed | ported verbatim |
-| 1759 | resolve-model refuses $gone rather than remapping it | ported verbatim |
+| 1759 | resolve-model refuses $gone rather than remapping it | amended: gpt-7-sol and a variant replace gpt-6-terra/gpt-6.1-sol, which now resolve |
 | 1783 | a non-primary rung shared by same-route rows resolves | ported; the shared-tier table is a user `models.tsv` instead of a rewritten copy of the script |
 | 1784 | to the first claimant, keeping the tier id | ported; the shared-tier table is a user `models.tsv` instead of a rewritten copy of the script |
 | 1786 | a rung claimed by rows on different routes is refused | ported; the shared-tier table is a user `models.tsv` instead of a rewritten copy of the script |

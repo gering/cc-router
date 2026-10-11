@@ -80,8 +80,10 @@ agent (name, model, fable/opus/sonnet/haiku tiers, the session's context
 ceiling, credential prefix, login flag, provider). `~/.config/cc-router/models.tsv`, when present,
 **replaces** it entirely — copy the packaged file and edit it; new packaged
 rows then need merging by hand. An invalid table is refused, never partially
-used. Grok discovery and the verified context windows are policy in the code,
-not table data. `CC_HARNESS_MODEL_<AGENT>=<id>` pins one agent to a model.
+used. Catalog discovery (Grok releases, Codex minors per role) and the
+verified context windows are policy in the code, not table data.
+`CC_HARNESS_MODEL_<AGENT>=<id>` pins one agent's primary to a model; the other
+roles keep discovering.
 
 ## Why
 
@@ -154,7 +156,8 @@ context ceiling live in one line of a table. If a sixth model needs a branch,
 the change is in the wrong shape. What is policy, not data: which newer
 releases discovery may pick, their verified windows, and which superseded ids
 stay resumable on their former row — a pinned or discovered id outside the
-verified list gets a conservative ceiling and says so.
+verified list gets its verified major's window (Codex minors) or a conservative
+ceiling, and says so.
 
 **Fail closed, and say which layer failed.** `403` Access, `401` proxy key,
 `502` origin, TLS, missing model — each is a distinct message. A generic "proxy
