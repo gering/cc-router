@@ -156,7 +156,8 @@ context ceiling live in one line of a table. If a sixth model needs a branch,
 the change is in the wrong shape. What is policy, not data: which newer
 releases discovery may pick, their verified windows, and which superseded ids
 stay resumable on their former row — a pinned or discovered id outside the
-verified list gets a conservative ceiling and says so.
+verified list gets its verified major's window (Codex minors) or a conservative
+ceiling, and says so.
 
 **Fail closed, and say which layer failed.** `403` Access, `401` proxy key,
 `502` origin, TLS, missing model — each is a distinct message. A generic "proxy

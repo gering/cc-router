@@ -140,6 +140,17 @@ func TestCodexResume(t *testing.T) {
 			t.Errorf("%s resume, terra retired = %+v %q", pinTo, got, sel.Note)
 		}
 	}
+	// A malformed override is ignored like an unset one: discovery still runs.
+	bad := (&selector{env: NewEnv([]string{"CC_HARNESS_MODEL_SOL=gpt 6-sol"}), cat: retired}).Resolve(sol)
+	if got := bad.Apply(sol); got.Model != "gpt-6.2-sol" || got.Sonnet != "gpt-6-terra" || !strings.Contains(bad.Note, "is malformed — ignored") {
+		t.Errorf("malformed pin = %+v %q", got, bad.Note)
+	}
+	// A cross-role pin places its own class too: Sol does not move past it.
+	astra := packagedRow(t, "astra")
+	cross := (&selector{env: NewEnv([]string{"CC_HARNESS_MODEL_ASTRA=gpt-6-sol"}), cat: cat}).Resolve(astra)
+	if got := cross.Apply(astra); got.Model != "gpt-6-sol" || got.Opus != "gpt-6-sol" {
+		t.Errorf("cross-role pin = %+v %q", got, cross.Note)
+	}
 }
 
 // The session ceiling never exceeds the row's: an unplaced rung (here a 5.6

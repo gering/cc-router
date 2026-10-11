@@ -47,6 +47,9 @@ the cutover. Its acceptance criteria, agreed across both sides:
   **newest served member of its own family**. Majors may differ across rungs;
   a mixed generation (gpt-6-astra over 5.6 sol/terra/luna) is legal and is the
   current reality. Same-major uniformity is explicitly NOT a requirement.
+  Narrowed for Codex (Robert, 2026-10-02, task codex-minor-discovery): a rung
+  auto-selects only within a verified major (today 6); a new major enters with
+  its measured window, never by discovery alone.
 - **No stale foreign dependencies** (this is what "no borrowed rungs" means):
   a row must never become unavailable because a pinned id *outside* the four
   families (spark-class) or an outdated pinned member vanished while a valid

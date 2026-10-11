@@ -15,8 +15,8 @@ import (
 // Precedence of an agent's effective model, highest first:
 //  1. CC_HARNESS_MODEL_<AGENT> — an explicit override, on both routes.
 //  2. Catalog discovery (remote route, rows of a discovering family): the
-//     NEWEST CURRENTLY OFFERED canonical model per class. The last-known model is not a
-//     floor — a catalog that stopped offering it has said so.
+//     NEWEST CURRENTLY OFFERED canonical model per class. The last-known
+//     model is not a floor — a catalog that stopped offering it has said so.
 //  3. The table's last-known model, only when there is no valid catalog, and
 //     labelled as such in the note.
 //
@@ -26,6 +26,9 @@ import (
 // the newest offered candidate, the next one to the newest candidate BELOW that
 // can hold the session's ceiling. Grok's two-rung ladder (primary + previous)
 // and Codex's four independent roles are the same rule.
+
+// family is one discovering route family's policy: what it may pick and which
+// windows its picks get.
 type family struct {
 	// The pattern accepts ONLY canonical ids, and its major is an allow-list:
 	// a new generation is exactly where a provider changes what an id means,
@@ -401,8 +404,8 @@ func (s *selector) Resolve(r Row) Selection {
 	case override == "":
 	case strings.ContainsAny(override, " \t\n\v\f\r") || hasControl(override) || !modelIDRe.MatchString(override):
 		// Exported, it would 404 the whole session as a nonsense model id.
-		sel.Note = fmt.Sprintf("%s is malformed — ignored, using %s", variable, r.Model)
-		return sel
+		// Ignored like an unset one: the rows still discover.
+		notes = append(notes, fmt.Sprintf("%s is malformed — ignored", variable))
 	case override == r.Model:
 		// Pinning the row's OWN primary is a no-op, not a ladder move:
 		// the resume path pins the recorded primary, and collapsing the
@@ -418,14 +421,16 @@ func (s *selector) Resolve(r Row) Selection {
 		// above the row's: the rungs that stay are reachable with /model,
 		// and the row ceiling is what they were sized against.
 		ctx, note := s.ceiling(r.Cred, override)
-		if known, _, ok := s.modelContext(r.Cred, override); ok && known > r.MaxCtx {
+		if ctx > r.MaxCtx {
+			note = fmt.Sprintf("; context window capped at the row ceiling %d (its own window %d exceeds a reachable rung)", r.MaxCtx, ctx)
 			ctx = r.MaxCtx
-			note = fmt.Sprintf("; context window capped at the row ceiling %d (its own window %d exceeds a reachable rung)", r.MaxCtx, known)
 		}
 		ceiling = ctx
 		notes = append(notes, fmt.Sprintf("pinned to %s via %s%s", override, variable, note))
 		sel.moves[r.Model] = override
-		pinned[class(r.Model)] = true
+		// The pinned model's own class is placed too: a cross-role pin
+		// (astra on gpt-6-sol) must not see its Sol rung move past it.
+		pinned[class(r.Model)], pinned[class(override)] = true, true
 		if !otherRole(r.Sonnet, r.Model) {
 			sel.moves[r.Sonnet] = override
 			pinned[class(r.Sonnet)] = true
