@@ -1,3 +1,5 @@
+> Archived 2026-10-16 · closed manually (no merged PR) · none
+
 # Manager handoff: current routing and resume direction
 
 Instruction ID: ROUTER-COORDINATION-20260905-A. Approved by Robert.
