@@ -3,8 +3,8 @@
 // agent table, the route probes and the routing environment; callers choose
 // an agent and, optionally, the route.
 //
-// The CLI (list, exec, resolve-model) is an external contract — see
-// README.md. Remote is the default route; --local selects the machine-local
+// The CLI (list, exec, names, resolve-model, serves) is an external contract —
+// see README.md. Remote is the default route; --local selects the machine-local
 // gateway and is never an automatic fallback.
 package agents
 
@@ -20,7 +20,9 @@ import (
 
 const usageText = `usage: cc-harness-agents list [--local] [--header|--no-header]
        cc-harness-agents exec [--local] <agent> [--] <command…>
+       cc-harness-agents names
        cc-harness-agents resolve-model <model-id>
+       cc-harness-agents serves <model-id>
 `
 
 // App is one invocation with every side effect injectable.
@@ -78,8 +80,12 @@ func (a *App) run(args []string) error {
 		return a.list(home, args[1:])
 	case "exec":
 		return a.exec(home, args[1:])
+	case "names":
+		return a.names(home, args[1:])
 	case "resolve-model":
 		return a.resolveModel(home, args[1:])
+	case "serves":
+		return a.serves(home, args[1:])
 	case "-h", "--help", "help":
 		io.WriteString(a.Stdout, usageText)
 		return nil
@@ -100,6 +106,47 @@ func (a *App) resolveModel(home string, args []string) error {
 		return err
 	}
 	fmt.Fprintf(a.Stdout, "%s\t%s\n", agent, model)
+	return nil
+}
+
+// names prints the agent names, one per line in table order: the claude
+// wrapper's foreign-model flags. Offline, so it can run on every launch.
+func (a *App) names(home string, args []string) error {
+	if len(args) != 0 {
+		return usageError()
+	}
+	table, err := LoadTable(home, a.Executable)
+	if err != nil {
+		return err
+	}
+	for _, r := range table.Rows {
+		fmt.Fprintln(a.Stdout, r.Name)
+	}
+	return nil
+}
+
+// serves asks the remote route whether it still offers <model-id>, so a resume
+// can tell a model the gateway dropped (exitNotServed) from a route that failed
+// (every other status, the same as exec's).
+func (a *App) serves(home string, args []string) error {
+	if len(args) != 1 || args[0] == "" {
+		return usageError()
+	}
+	cfg, err := LoadConfig(a.Env, home)
+	if err != nil {
+		return err
+	}
+	route, err := loadRemote(cfg, a.Env)
+	if err != nil {
+		return err
+	}
+	cat, note := a.prober().probe(route)
+	if cat.State != catalogValid {
+		return fail(exitUnavailable, "remote route unavailable — %s", note)
+	}
+	if !cat.has(args[0]) {
+		return fail(exitNotServed, "the remote route no longer serves %s", oneLine(args[0]))
+	}
 	return nil
 }
 
