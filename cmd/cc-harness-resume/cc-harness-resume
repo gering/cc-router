@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+"""Resolve CC resume routing from existing transcripts; never emit their text.
+
+usage: cc-harness-resume continue|<session-UUID>
+
+Output: UUID<TAB>agent-or-native<TAB>model. Continue is pinned to the resolved
+UUID so routing and Claude cannot independently select different conversations.
+
+Exit status is the caller's instruction, not just success/failure:
+  0  resolved — route through the named agent (or `native`, i.e. leave alone)
+  3  a FOREIGN model is recorded and could NOT be restored — no profile serves
+     it, or the helper could not be asked at all. Either way the caller pins
+     Claude back to its default, because CC would otherwise re-apply the stored
+     foreign id against Anthropic. The stderr line names which of the two it
+     was; the exit status deliberately does not, because the caller's action is
+     the same. "Could not ask" is NOT exit 1: a foreign model IS on record, so
+     doing nothing is the one unsafe option.
+  1  indeterminate — nothing says a foreign model was ever involved (no session
+     here, an ambiguous id, the picker, nothing recorded yet). The caller must
+     change nothing and let Claude resume normally. Silent when Claude itself
+     handles the case (no transcript for the id, nothing to continue here, a
+     session that never got an answer); stderr carries a line only when an
+     explicit model flag would actually change the outcome (an ambiguous id,
+     `continue` where Claude may pick a transcript this could not restore, a
+     search selector, a recorded model that fails the id check).
+"""
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+UUID = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\Z")
+SKIPPED = 'model restore skipped (use --resume <UUID> or an explicit model flag)'
+
+
+class Unroutable(Exception):
+    """A foreign model was recorded, but no profile serves it (exit 3)."""
+
+
+class Silent(Exception):
+    """Indeterminate (exit 1) with nothing worth saying: Claude reports it itself.
+
+    A UUID with no transcript is the usual case: Claude answers "No conversation
+    found", and a resolver line ahead of it blaming a missing model flag made a
+    session that never saved anything look like a model-restore bug.
+    """
+
+
+def rows(path):
+    """Yield the transcript's own main-session records, cheapest possible."""
+    # Explicit UTF-8: transcripts are UTF-8 regardless of the shell's locale, so
+    # reading them through `locale.getpreferredencoding()` would make a session
+    # resumable or not depending on LANG. `errors='replace'` because a torn last
+    # line must degrade to one skipped record, not kill the whole resolve.
+    with path.open(encoding='utf-8', errors='replace') as stream:
+        for line in stream:
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(row, dict) or row.get('isSidechain'):
+                continue
+            # Case-insensitive: on APFS an uppercase `--resume` selector globs
+            # to an uppercase stem for a lowercase-recorded session, and an
+            # exact compare would drop every row and read as "never answered".
+            session = row.get('sessionId')
+            if session is not None and str(session).lower() != path.stem.lower():
+                continue
+            yield row
+
+
+def session_cwd(path):
+    """The cwd this session started in, or None. Stops at the first record
+    that carries one, so a leading cwd-less row cannot pass for "never answered".
+
+    Split out from metadata() on purpose: the continue-selector walks candidates
+    newest-first and discards every one whose cwd does not match, so parsing a
+    whole transcript just to learn its FIRST record's cwd is work thrown away —
+    and a transcript can be a hundred megabytes.
+    """
+    for row in rows(path):
+        if row.get('type') in ('user', 'assistant') and row.get('cwd'):
+            return row['cwd']
+    return None
+
+
+def last_model(path):
+    """The last main-session assistant model, or None. Needs the whole file.
+
+    Raises ValueError when a model WAS recorded but none passed the id check:
+    that differs from "never answered" and is worth one stderr line.
+    """
+    model = None
+    rejected = False
+    for row in rows(path):
+        message = row.get('message')
+        if row.get('type') == 'assistant' and isinstance(message, dict):
+            candidate = message.get('model')
+            # No '/' and a hard length bound: this string is exported into the
+            # resumed session and every child process, and reaches the gateway
+            # inside a URL path. A transcript is not a trusted source, so
+            # `grok-4.6/../../v1/anything` must never become a model id.
+            # A rejected id is never restored; when nothing valid remains it
+            # is reported below rather than passed off as "nothing recorded".
+            if isinstance(candidate, str) and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]{0,63}', candidate):
+                model = candidate
+            # CC's own `<synthetic>` placeholder (API errors, interrupts) is
+            # routine, not a suspicious id.
+            elif candidate not in (None, '', '<synthetic>'):
+                rejected = True
+    if model is None and rejected:
+        raise ValueError('no recorded model is a valid id; model restore skipped '
+                         '(pass an explicit model flag to choose one)')
+    return model
+
+
+def project_key(cwd):
+    """The project-folder name Claude derives from a cwd (before shortening)."""
+    return re.sub(r'[^A-Za-z0-9]', '-', str(cwd))
+
+
+def claude_folder_is_certain(cwd):
+    """Whether Claude keys this cwd's transcripts under exactly our folder name.
+
+    Only then does an empty folder prove there is nothing to continue. A shell
+    cwd reached through a symlink may be keyed by its logical path, and Claude
+    shortens very long keys, so either case keeps the hint instead.
+    """
+    logical = os.environ.get('PWD')
+    if logical and os.path.abspath(logical) != str(cwd):
+        return False
+    return len(project_key(cwd)) <= 200
+
+
+def route(model):
+    """Ask cc-harness-agents which profile serves `model`.
+
+    The agent table belongs to that script. Parsing its SOURCE (as this once did)
+    turned its formatting into an undeclared contract: reflowing the assignment or
+    inserting a column would have left every custom-model resume silently
+    unroutable while its own tests stayed green.
+    """
+    helper = Path(__file__).resolve().with_name('cc-harness-agents')
+    try:
+        answer = subprocess.run([str(helper), 'resolve-model', model],
+                                capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise Unroutable(f'cannot reach cc-harness-agents: {error}')
+    if answer.returncode != 0:
+        raise Unroutable(answer.stderr.strip()
+                         or f'no routing profile for recorded model {model}')
+    fields = answer.stdout.strip().split('\t')
+    if len(fields) != 2 or not all(fields):
+        raise Unroutable('cc-harness-agents returned an unusable routing profile')
+    return fields[0], fields[1]
+
+
+def resolve(selector, cwd, config):
+    root = config / 'projects'
+    if selector == 'continue':
+        folder = root / project_key(cwd)
+        candidates = sorted((p for p in folder.glob('*.jsonl') if UUID.fullmatch(p.stem)),
+                            key=lambda p: p.stat().st_mtime_ns, reverse=True)
+        path = None
+        foreign = False  # a newer transcript that answered in some other cwd
+        for candidate in candidates:
+            recorded_cwd = session_cwd(candidate)
+            if recorded_cwd and Path(recorded_cwd).resolve() == cwd:
+                path = candidate
+                break
+            foreign = foreign or bool(recorded_cwd)
+        if path is None:
+            # Nothing anyone answered in, under the key Claude itself uses:
+            # Claude reports that on its own. A transcript recorded elsewhere,
+            # or a folder key that may not be Claude's, can still be continued
+            # unrestored, so that case says so.
+            if not foreign and claude_folder_is_certain(cwd):
+                raise Silent()
+            raise ValueError(f'no conversation recorded for this exact directory; {SKIPPED}')
+        model = last_model(path)
+        # Without a model the UUID is not pinned, so Claude picks the newest
+        # transcript itself. Silence is only wrong when a newer one answered
+        # elsewhere; a newer cwd-less one never answered either.
+        if not model and foreign:
+            raise ValueError(f'the newest conversation here records another directory; {SKIPPED}')
+    elif UUID.fullmatch(selector):
+        matches = list(root.glob(f'*/{selector}.jsonl'))
+        if not matches:
+            raise Silent()
+        if len(matches) > 1:
+            raise ValueError(f'resume UUID {selector} is ambiguous across {len(matches)} projects; '
+                             'model restore skipped; pass an explicit model flag to choose one')
+        path = matches[0]
+        model = last_model(path)
+    else:
+        raise ValueError(f'search selector; {SKIPPED}')
+    if not model:
+        # Never answered: Claude resumes on its default, which is all a restore
+        # could have chosen anyway.
+        raise Silent()
+    if model.startswith('claude-'):
+        return path.stem, 'native', model
+    agent, canonical = route(model)
+    return path.stem, agent, canonical
+
+
+if __name__ == '__main__':
+    try:
+        if len(sys.argv) != 2:
+            raise ValueError('usage: cc-harness-resume continue|UUID')
+        config = Path(os.environ.get('CLAUDE_CONFIG_DIR') or str(Path.home() / '.claude'))
+        print('\t'.join(resolve(sys.argv[1], Path.cwd().resolve(), config)))
+    except Silent:
+        sys.exit(1)
+    except Unroutable as error:
+        print(f'claude: {error}', file=sys.stderr)
+        sys.exit(3)
+    # Deliberately broad: a malformed transcript row or an unexpected helper
+    # answer must reach the caller as the documented exit 1, never as a traceback
+    # printed into an interactive shell on every launch.
+    except Exception as error:  # noqa: BLE001 - the contract is "never abort loudly"
+        print(f'claude: {error}', file=sys.stderr)
+        sys.exit(1)
