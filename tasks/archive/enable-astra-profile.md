@@ -1,3 +1,5 @@
+> Archived 2026-10-16 · PR #26 (merged) · none
+
 # Enable Astra through the existing CC routing path
 
 ## Priority and ownership
