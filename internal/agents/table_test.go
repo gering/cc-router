@@ -58,6 +58,7 @@ func TestParseTableRejects(t *testing.T) {
 		"crlf":            good + "\r\n",
 		"columns":         "a\tm1\tm1\tm1\tm1\tm1\t1000\tc\t-c-login",
 		"empty field":     "a\tm1\tm1\t\tm1\tm1\t1000\tc\t-c-login\tC",
+		"name dot":        "a.b\tm1\tm1\tm1\tm1\tm1\t1000\tc\t-c-login\tC",
 		"name":            "-a\tm1\tm1\tm1\tm1\tm1\t1000\tc\t-c-login\tC",
 		"model slash":     "a\tx/m1\tx/m1\tm1\tm1\tm1\t1000\tc\t-c-login\tC",
 		"ctx zero":        "a\tm1\tm1\tm1\tm1\tm1\t0\tc\t-c-login\tC",

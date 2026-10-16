@@ -37,7 +37,9 @@ const (
 )
 
 var (
-	agentNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+	// No '.': the name becomes part of CC_HARNESS_MODEL_<AGENT>, and the
+	// derivation (here and in the dotfiles wrapper) only maps '-' to '_'.
+	agentNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 	// The same shape cc-harness-resume accepts from a transcript, so every id
 	// the table exports can also be restored.
 	modelIDRe  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$`)
