@@ -25,10 +25,14 @@ jobs:
           go-version-file: go.mod
       # Setup is the only step that downloads anything; the gate itself runs
       # without network or secrets.
-      - name: Install shellcheck
+      # zsh runs the wrapper suites; macOS ships it, Ubuntu does not.
+      - name: Install shellcheck and zsh
         run: |
-          if command -v shellcheck >/dev/null; then exit 0; fi
-          if [ "$RUNNER_OS" = macOS ]; then brew install shellcheck; else sudo apt-get update && sudo apt-get install -y shellcheck; fi
+          missing=""
+          command -v shellcheck >/dev/null || missing="$missing shellcheck"
+          command -v zsh >/dev/null || missing="$missing zsh"
+          if [ -z "$missing" ]; then exit 0; fi
+          if [ "$RUNNER_OS" = macOS ]; then brew install $missing; else sudo apt-get update && sudo apt-get install -y $missing; fi
       - name: Fetch modules and tools
         run: |
           go mod download

@@ -58,13 +58,16 @@ macOS ships is where a stranger's silent failure would come from.
 
 ## Layout
 
-Implemented (migration step 1):
+Implemented (migration steps 1 and 1b):
 
 ```
 cmd/cc-harness-agents/    the binary: CLI entry point and production wiring
+cmd/cc-harness-resume/    the interim resume bridge (python3), copied to bin/
 internal/agents/          the routing core — table, probes, selection, exec
 internal/testpki/         hermetic TLS fixtures (CA, loopback listeners)
 share/models.tsv          <- the table as data
+share/claude.zsh          the interactive wrapper, sourced from .zshrc
+docs/resume.md            the resume runbook: precedence, exit statuses, limits
 tests/                    run  +  the carried-over upstream suites
 Makefile                  build / check / fmt over the Go toolchain
 install.sh                POSIX, links bin/* onto PATH
@@ -86,8 +89,9 @@ status|statusline|auth|doctor`, with the shim, the statusline and the quota
 helpers calling *it* and holding no routing logic of their own. Today "the model
 table exists once" is discipline; that would make it structure.
 
-Today: one binary, `cc-harness-agents`, with the `list` / `exec` /
-`resolve-model` subcommands. `list` and `exec` are work-system's external
+Today: one binary, `cc-harness-agents`, with the `list` / `exec` / `names` /
+`resolve-model` / `serves` subcommands; the wrapper reads its flags from
+`names`, so a row needs no wrapper edit. `list` and `exec` are work-system's external
 contract and do not move when the entry point does — a later `cc-router` gains
 the subcommands, it does not rename these.
 
@@ -213,6 +217,8 @@ only `client.env` (host names, SOPS secrets) and a symlink into the checkout.
 Order — each step must leave the author working the same day:
 
 1. `cc-harness-agents` — the core; the most tests; everything else calls it.
+   - **1b.** the `claude()` wrapper and the resume bridge — thin callers of 1;
+     the wrapper's flags come from its table (`names`).
 2. statusline + quota — depend on 1, independently testable.
 3. `cliproxy-auth` — largest file, least entangled.
 4. companion — rename the module, decide the release path.

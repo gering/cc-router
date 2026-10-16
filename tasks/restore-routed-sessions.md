@@ -133,6 +133,16 @@ Resolution order for existing sessions that predate `CC_ROUTER_PROFILE`:
    failover, or hiding the failure of a *positively selected* proxy route —
    an explicit `--grok`/`--sol`/`--local` that cannot be honored is still an
    error, not a fallback.
+6. when the model maps to a profile but the **gateway no longer serves it**,
+   the same applies: Anthropic default with a concise notice (Robert,
+   2026-10-16). Only that verdict falls back — the helper reports it as its
+   own status (`cc-harness-agents serves <model>` exits `4`), never inferred
+   from message text. A route that fails (`403` Access, `401` key, `502`
+   origin, TLS, no configuration) stays an error that names its layer, and an
+   explicit `--grok`/`--sol` on a model the route lacks fails in `exec`. The
+   local route has no catalog to ask; its own readiness gate decides.
+   Implemented in the interim bridge path (`share/claude.zsh`); the shim
+   inherits the rule.
 
 ### Explicit `--resume`
 
@@ -240,6 +250,9 @@ Cover at least:
 | herdr pane restore (fresh shell, 0.8.2 path) | routed sidecar | Wrapper loads; same restore result |
 | malformed or wrong-mode sidecar | any | Ignored safely; Anthropic default + notice |
 | unknown model/profile in resume mapping | any | Anthropic default + concise notice, no credential disclosure |
+| `claude --resume ID` | mapped model the gateway dropped | Anthropic default + concise notice naming the model |
+| `claude --resume ID` | mapped model, route fails (403/401/502/TLS) | Error naming the layer, nothing launched |
+| `claude --resume ID --sol` | Sol model the gateway dropped | Explicit flag wins; `exec` fails naming the missing model |
 | unknown model/profile as explicit selector | any | Actionable failure, no credential disclosure |
 
 Tests must use fake launchers and helpers and assert argv and environment variable

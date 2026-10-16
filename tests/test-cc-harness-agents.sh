@@ -48,8 +48,8 @@ done
 # shellcheck source=/dev/null
 . "$TMP_ROOT/gateway.env"
 
-PASS=0
-FAIL=0
+# shellcheck source=tests/assert.sh disable=SC1091
+. "$(dirname "${BASH_SOURCE[0]}")/assert.sh"
 RC=0
 OUT=""
 ERR=""
@@ -61,49 +61,6 @@ CURL_COUNT=""
 CURL_LOG=""
 COMMON_PATH=""
 TARGET="$TMP_ROOT/capture-env"
-
-pass() {
-  PASS=$((PASS + 1))
-  printf 'ok %d - %s\n' "$PASS" "$1"
-}
-
-fail() {
-  FAIL=$((FAIL + 1))
-  printf 'not ok - %s\n' "$1" >&2
-  return 0
-}
-
-assert_eq() {
-  local expected="$1" actual="$2" label="$3"
-  if [ "$actual" = "$expected" ]; then
-    pass "$label"
-  else
-    printf 'expected: <%s>\nactual:   <%s>\n' "$expected" "$actual" >&2
-    fail "$label"
-  fi
-}
-
-assert_contains() {
-  local haystack="$1" needle="$2" label="$3"
-  case "$haystack" in
-    *"$needle"*) pass "$label" ;;
-    *)
-      printf 'missing: <%s>\nin: <%s>\n' "$needle" "$haystack" >&2
-      fail "$label"
-      ;;
-  esac
-}
-
-assert_not_contains() {
-  local haystack="$1" needle="$2" label="$3"
-  case "$haystack" in
-    *"$needle"*)
-      printf 'unexpected: <%s>\nin: <%s>\n' "$needle" "$haystack" >&2
-      fail "$label"
-      ;;
-    *) pass "$label" ;;
-  esac
-}
 
 assert_secret_safe() {
   local text="$1" label="$2"
@@ -1705,9 +1662,4 @@ assert_contains "$ERR" 'must use https://' "the plaintext refusal says why"
 assert_eq 0 "$(curl_calls)" "a plaintext gateway is never contacted"
 assert_secret_safe "$ERR" "the URL refusal hides secrets"
 
-printf '1..%d\n' "$PASS"
-if [ "$FAIL" -ne 0 ]; then
-  printf '%d tests failed\n' "$FAIL" >&2
-  exit 1
-fi
-printf '%d tests passed\n' "$PASS"
+finish

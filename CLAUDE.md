@@ -5,12 +5,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Repository state
 
 The routing core `cc-harness-agents` is implemented here in Go
-(`cmd/cc-harness-agents`, `internal/agents`, table in `share/models.tsv`). The
-wrapper, statusline, `cliproxy-auth` and companion still live in the private
+(`cmd/cc-harness-agents`, `internal/agents`, table in `share/models.tsv`), with
+the interactive wrapper (`share/claude.zsh`) and the interim resume bridge
+(`cmd/cc-harness-resume`, python3, copied to `bin/` by `make build`). The
+statusline, `cliproxy-auth` and companion still live in the private
 `gering/dotfiles` repository and move later.
 
 - **`make check` is the gate** (gofmt/vet/staticcheck, shellcheck/shfmt,
-  `go test -race`, `tests/run`, then `make build`); `make fmt` formats. The contract suite
+  `zsh -n`, `go test -race`, `tests/run` — routing, wrapper and resume suites,
+  needing zsh and python3 — then `make build`); `make fmt` formats. The contract suite
   in `tests/` came across from dotfiles — keep its assertions language-neutral
   and update `tests/migration-coverage.md` when it changes.
 - `tasks/architecture.md` holds the decisions: layout, language, distribution,
@@ -52,7 +55,8 @@ Five pieces, deliberately layered so routing logic exists exactly once:
   the environment recipe (base URL, auth, headers, tier defaults, subagent
   model, context ceiling), then execs `claude`. Everything else calls it.
 - **`claude()` wrapper / executable shim** — interactive layer only: flag
-  parsing, conflict checks, resume hints. Must never duplicate the model table.
+  parsing, conflict checks, resume hints. Must never duplicate the model table:
+  its foreign-model flags come from `cc-harness-agents names`.
   The planned shim (see the restore task) sits ahead of the native launcher on
   `PATH` so non-shell callers like herdr also get routing.
 - **`cliproxy-auth`** — tunnels to the private admin API; runs provider OAuth

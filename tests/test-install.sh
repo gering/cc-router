@@ -27,7 +27,7 @@ explains() { ! install && grep -q "make build" "$TMP/out"; }
 
 mkdir -p "$TMP/checkout/bin" "$TMP/dest"
 cp "$ROOT/install.sh" "$TMP/checkout/"
-cp "$PKG/bin/cc-harness-agents" "$TMP/checkout/bin/"
+cp "$PKG/bin/cc-harness-agents" "$PKG/bin/cc-harness-resume" "$TMP/checkout/bin/"
 ln -s "$ROOT/share" "$TMP/checkout/share"
 checkout=$(cd "$TMP/checkout" && pwd -P)
 link="$TMP/dest/cc-harness-agents"
@@ -36,13 +36,15 @@ install
 expect "install links the binary" [ "$(readlink "$link")" = "$checkout/bin/cc-harness-agents" ]
 expect "the installed link runs and finds share/" \
   [ "$(HOME="$TMP" "$link" resolve-model gpt-6-astra)" = "$(printf 'astra\tgpt-6-astra')" ]
+expect "install links the resume bridge" \
+  [ "$(readlink "$TMP/dest/cc-harness-resume")" = "$checkout/bin/cc-harness-resume" ]
 expect "a second run is idempotent" idempotent
 
 rm "$link"
 echo keep > "$link"
 expect "an existing file is never replaced" kept
 
-rm -f "$TMP/checkout/bin/cc-harness-agents"
+rm -f "$TMP/checkout/bin/cc-harness-agents" "$TMP/checkout/bin/cc-harness-resume"
 expect "an unbuilt checkout says what to do" explains
 
 [ "$fails" -eq 0 ]

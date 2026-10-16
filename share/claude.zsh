@@ -1,22 +1,43 @@
-# Interactive `claude` wrapper, sourced from .zshrc.
+# Interactive `claude` wrapper. Source it from your .zshrc:
 #
-# Definitions only: no output, no PATH mutation, nothing that could disturb the
-# Powerlevel10k instant prompt. `scripts/test-cc-harness-agents.sh` and
-# `scripts/test-cc-harness-resume.py` both source this file directly, so it must
-# stay self-contained.
+#   source /path/to/cc-router/share/claude.zsh
+#
+# Definitions only: no output, no PATH mutation, nothing that could disturb an
+# instant prompt. tests/test-claude-wrapper.sh and tests/test-cc-harness-resume.py
+# both source this file directly, so it must stay self-contained. It needs
+# cc-harness-agents and cc-harness-resume on PATH (install.sh links both).
 #
 # Wrapper: `--yolo` = --dangerously-skip-permissions; foreign-model flags route
 # remotely by default, and `--local` selects the helper's local gateway. Remote
 # fails closed on TLS; local trusts whichever process holds the loopback port.
 # The helper owns models, probes, and environment recipes; this function remains
 # the interactive layer for parsing, conflicts, the herdr `script` skip, and resume.
-# Adding an agent = a row in the helper's table + its flag here, spelled EXACTLY
-# like the row's `name` (routing passes `${model_flag#--}` straight through).
+# The foreign-model flags ARE the helper's table: `--<name>` for every name
+# `cc-harness-agents names` prints, so adding an agent is a table row and nothing
+# here. A row named like one of this wrapper's own flags, or like an option
+# Claude itself takes, is shadowed by it.
 # `--fable`/`--opus`/`--sonnet`/`--haiku` are the NATIVE counterpart and expand to
 # `--model <alias>` — they route nowhere. They exist for resume: the restore only
 # stands down for an explicit model choice, so without them `-c` always re-enters
 # the transcript's foreign agent and there is no short way back to Claude.
 # Exact arg match only (never rewrite prompt text); preserve exit status; trap log cleanup.
+
+# Resolve an external command to its PATH location, printing nothing.
+# Always by resolved path, never by bare name: in zsh a bare name also matches
+# a shadowing FUNCTION, and one of these calls is handed the gateway token —
+# checking $commands and then invoking the name would verify one thing and run
+# another. $commands is a hash a long-lived shell can hold stale across a
+# self-update that relocates a launcher, so rehash once before giving up.
+_claude_bin_of() {
+  local p="${commands[$1]-}"
+  if [[ ! -x "$p" ]]; then
+    rehash
+    p="${commands[$1]-}"
+  fi
+  [[ -x "$p" ]] || return 1
+  print -r -- "$p"
+}
+
 claude() {
   local args=()
   local yolo=false
@@ -25,7 +46,7 @@ claude() {
   local native_model=false
   local native_flag=""
   local passthrough=false
-  local arg
+  local arg cc_bin="" agents=() agents_read=false
   local resume_selector="" resume_index=0 resume_value_index=0 resume_seen=0
   local value_pending=false optval_pending=false optval_is_resume=false variadic_pending=false
   for arg in "$@"; do
@@ -63,7 +84,7 @@ claude() {
         args+=("$arg")
         resume_index=${#args}
         resume_value_index=0
-        (( resume_seen++ ))
+        (( ++resume_seen ))
         ;;
       -r|--resume)
         resume_selector="picker"
@@ -72,14 +93,14 @@ claude() {
         args+=("$arg")
         resume_index=${#args}
         resume_value_index=0
-        (( resume_seen++ ))
+        (( ++resume_seen ))
         ;;
       --resume=*)
         resume_selector="${arg#--resume=}"
         args+=("$arg")
         resume_index=${#args}
         resume_value_index=0
-        (( resume_seen++ ))
+        (( ++resume_seen ))
         ;;
       --model|--model=*)
         if [[ -n "$native_flag" ]]; then
@@ -146,36 +167,32 @@ claude() {
       --local)
         local_route=true
         ;;
-      --astra|--sol|--terra|--luna|--grok)
+      --[A-Za-z0-9]*)
+        # Any other option may be a foreign-model flag. The table is read at
+        # most once per launch, and only once such an option shows up: a plain
+        # `claude` never starts the helper. Without the helper, or with a name
+        # the table lacks, the option reaches Claude untouched and Claude
+        # rejects it, never a silent run on the default model.
+        if [[ "$agents_read" == false ]]; then
+          agents_read=true
+          cc_bin="$(_claude_bin_of cc-harness-agents)" && agents=("${(@f)$("$cc_bin" names)}")
+        fi
+        if (( ! ${agents[(Ie)${arg#--}]} )); then
+          args+=("$arg")
         # Refuse conflicting model flags instead of last-wins: the model's self-report
         # is unreliable, so a silently wrong backend is not noticeable in-session.
-        if [[ -n "$model_flag" && "$model_flag" != "$arg" ]]; then
+        elif [[ -n "$model_flag" && "$model_flag" != "$arg" ]]; then
           print -u2 "claude: conflicting model flags: $model_flag and $arg"
           return 1
+        else
+          model_flag="$arg"
         fi
-        model_flag="$arg"
         ;;
       *)
         args+=("$arg")
         ;;
     esac
   done
-
-  # Resolve an external command to its PATH location, printing nothing.
-  # Always by resolved path, never by bare name: in zsh a bare name also matches
-  # a shadowing FUNCTION, and one of these calls is handed the gateway token —
-  # checking $commands and then invoking the name would verify one thing and run
-  # another. $commands is a hash a long-lived shell can hold stale across a
-  # self-update that relocates a launcher, so rehash once before giving up.
-  _claude_bin_of() {
-    local p="${commands[$1]}"
-    if [[ ! -x "$p" ]]; then
-      rehash
-      p="${commands[$1]}"
-    fi
-    [[ -x "$p" ]] || return 1
-    print -r -- "$p"
-  }
 
   # Restore from the session itself, not a directory-wide "last model" file:
   # several agents may share a cwd. Explicit caller model choices always win.
@@ -195,7 +212,6 @@ claude() {
     # this wrapper inventing a rule of its own.
     if (( resume_seen > 1 )); then
       print -u2 "claude: more than one resume selector (-c / --resume) — pick one"
-      unfunction _claude_bin_of
       return 1
     fi
     # A bare `-r`/`--resume` opens the picker: the conversation is not known
@@ -208,28 +224,49 @@ claude() {
     else
       resume_status=1
     fi
+    resume_fields=("${(@s:	:)resume_route}")
+    if (( resume_status == 0 && ${#resume_fields} == 3 )) && [[ "${resume_fields[2]}" != native ]]; then
+      # The table maps the recorded model, but the gateway may have dropped it
+      # since. That alone falls back to the Anthropic default below (exit 4);
+      # every other failure is the route's, and stays an error naming its layer.
+      # The local route has no catalog to ask; its own gate runs in `exec`.
+      if [[ "$local_route" == false ]]; then
+        if [[ -z "$cc_bin" ]] && ! cc_bin="$(_claude_bin_of cc-harness-agents)"; then
+          print -u2 "claude: cc-harness-agents not on PATH — run cc-router's install.sh"
+          return 1
+        fi
+        "$cc_bin" serves "${resume_fields[3]}" || resume_status=$?
+        if (( resume_status == 4 )); then
+          resume_status=3
+        elif (( resume_status != 0 )); then
+          return "$resume_status"
+        fi
+      fi
+      # Pin the selector to the resolved UUID whether the restore goes ahead or
+      # falls back: a bare -c lets Claude pick the newest transcript in the
+      # folder, which need not be the one this decision was made for.
+      if (( resume_value_index > 0 )); then
+        args[$resume_index]="--resume"
+        args[$resume_value_index]="${resume_fields[1]}"
+      else
+        args[$resume_index]="--resume=${resume_fields[1]}"
+      fi
+    fi
     if (( resume_status == 0 )); then
-      resume_fields=("${(@s:	:)resume_route}")
       if (( ${#resume_fields} == 3 )) && [[ "${resume_fields[2]}" != native ]]; then
         model_flag="--${resume_fields[2]}"
-        # Same spelling rule as the helper's override_var_name(): uppercase AND
-        # '-' to '_'. Plain uppercasing would make a hyphenated agent name an
+        # Same spelling rule as the helper's overrideVar(): uppercase AND '-'
+        # and '.' to '_'. Plain uppercasing would make such an agent name an
         # invalid zsh identifier (an error on every resume), and even if it
         # assigned, the helper would read a different variable and silently
         # re-run discovery instead of restoring the recorded model.
-        local resume_var="CC_HARNESS_MODEL_${(U)${resume_fields[2]//-/_}}"
+        local resume_var="CC_HARNESS_MODEL_${(U)${resume_fields[2]//[.-]/_}}"
         # Function-local so later commands in THIS shell are unaffected. It is
         # deliberately inherited by the resumed session and whatever it spawns:
         # that is what keeps a nested `cc-harness-agents exec` on the same model
         # instead of silently re-running discovery.
         local "$resume_var=${resume_fields[3]}"
         export "$resume_var"
-        if (( resume_value_index > 0 )); then
-          args[$resume_index]="--resume"
-          args[$resume_value_index]="${resume_fields[1]}"
-        else
-          args[$resume_index]="--resume=${resume_fields[1]}"
-        fi
         # Override any model stored by CC itself as well as its environment.
         args=(--model "${resume_fields[3]}" "${args[@]}")
         print -u2 -- "claude: restoring ${resume_fields[3]} via cc-harness:${resume_fields[2]}"
@@ -239,8 +276,9 @@ claude() {
       # re-applies a session's stored model on resume, so leaving it alone would
       # send a foreign model id to Anthropic; pin the default instead.
       args=(--model default "${args[@]}")
-      # The resolver already printed WHY on stderr (no profile / helper
-      # unreachable / unusable answer), so this line states the consequence only.
+      # The resolver or the helper already printed WHY on stderr (no profile,
+      # no longer served, helper unreachable, unusable answer), so this line
+      # states the consequence only.
       print -u2 -- "claude: could not restore this session's foreign model; continuing with normal Anthropic defaults"
     fi
     # Every other status means "cannot tell" (no session here, ambiguous id,
@@ -251,7 +289,6 @@ claude() {
 
   if [[ "$local_route" == true && -z "$model_flag" ]]; then
     print -u2 "claude: --local requires one foreign-model flag"
-    unfunction _claude_bin_of
     return 1
   fi
 
@@ -259,7 +296,6 @@ claude() {
   # tier flag — the same silent-wrong-tier trap the check above exists for.
   if [[ -n "$model_flag" && "$native_model" == true ]]; then
     print -u2 "claude: $model_flag conflicts with ${native_flag:---model} — pick one"
-    unfunction _claude_bin_of
     return 1
   fi
 
@@ -267,11 +303,10 @@ claude() {
   # `exec` prefix here and let it replace itself with the real binary, so no
   # wrapper process lingers between the shell and `claude` (herdr's agent-state
   # detection and `/close` teardown both key on the pane's root process).
-  local cc_exec=() cc_bin=""
+  local cc_exec=()
   if [[ -n "$model_flag" ]]; then
-    if ! cc_bin="$(_claude_bin_of cc-harness-agents)"; then
-      print -u2 "claude: cc-harness-agents not on PATH — is ~/.scripts linked to the dotfiles?"
-      unfunction _claude_bin_of
+    if [[ -z "$cc_bin" ]] && ! cc_bin="$(_claude_bin_of cc-harness-agents)"; then
+      print -u2 "claude: cc-harness-agents not on PATH — run cc-router's install.sh"
       return 1
     fi
     cc_exec=("$cc_bin" exec)
@@ -283,21 +318,21 @@ claude() {
   local claude_bin=""
   if ! claude_bin="$(_claude_bin_of claude)"; then
     print -u2 "claude: claude binary not found on PATH"
-    unfunction _claude_bin_of
     return 1
   fi
-  unfunction _claude_bin_of
 
   # Inside herdr: skip the `script` wrapper so the real `claude` process is the
   # pane's foreground process and herdr's agent-state detection works. herdr
   # handles session IDs; routing restoration above still runs for its resumes.
-  if [[ "${HERDR_ENV:-}" == "1" ]]; then
+  # Off macOS too: the capture below is BSD script(1) syntax, which util-linux
+  # rejects, so there the launch goes direct and only the history hint is lost.
+  if [[ "${HERDR_ENV:-}" == "1" || "$OSTYPE" != darwin* ]]; then
     "${cc_exec[@]}" "$claude_bin" "${args[@]}"
     return $?
   fi
 
   # This process inherits routing secrets, so never resolve script(1) through an
-  # attacker-controlled PATH entry. This dotfiles target is macOS.
+  # attacker-controlled PATH entry. The invocation below is BSD/macOS script(1).
   local script_bin="/usr/bin/script"
   if [[ ! -x "$script_bin" ]]; then
     print -u2 "claude: $script_bin is not executable"
@@ -330,7 +365,7 @@ claude() {
     local resume_id
     resume_id=$(tail -c 4096 "$log" | tr -d '\r' | sed $'s/\x1b\\[[0-9;?]*[a-zA-Z]//g' \
       | grep -oE 'claude --resume "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"' \
-      | tail -1 | sed -E 's/^claude --resume "(.*)"$/\1/')
+      | tail -1 | sed -E 's/^claude --resume "(.*)"$/\1/') || true
     if [[ "$resume_id" =~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' ]]; then
       local resume_line="claude --resume \"$resume_id\""
       [[ "$yolo" == true ]] && resume_line="$resume_line --yolo"

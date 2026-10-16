@@ -13,11 +13,10 @@ claude            # unchanged: Anthropic
 Your subscriptions stay on a host you control. The laptop holds no OAuth
 credentials, only a revocable per-machine key.
 
-> **Status: early.** The routing core, `cc-harness-agents`, is here (Go). The
-> interactive `claude --grok` flags, the statusline and the login tooling still
-> live in the author's dotfiles and move next — see [`tasks/mission.md`](tasks/mission.md)
-> and [`tasks/architecture.md`](tasks/architecture.md). Until then, launch
-> routed sessions with `cc-harness-agents exec` directly.
+> **Status: early.** The routing core, `cc-harness-agents` (Go), the
+> interactive `claude` wrapper and the resume bridge are here. The statusline
+> and the login tooling still live in the author's dotfiles and move next — see
+> [`tasks/mission.md`](tasks/mission.md) and [`tasks/architecture.md`](tasks/architecture.md).
 
 ## Install
 
@@ -27,16 +26,25 @@ make build        # needs Go (version in go.mod; mise.toml pins it for mise user
 ./install.sh      # links bin/* into ~/.local/bin (CC_ROUTER_BIN_DIR=… to change)
 ```
 
+For the `claude --grok` flags, source the wrapper from your `~/.zshrc`:
+
+```sh
+source /path/to/cc-router/share/claude.zsh
+```
+
 The links point into the checkout: `git pull && make build` updates in place,
 and `share/models.tsv` is read on every invocation. Uninstall by removing the
-links. The binary has no runtime dependencies.
+links and the `source` line. The binary has no runtime dependencies; the resume
+bridge (`cc-harness-resume`) needs `python3`, the wrapper `zsh`.
 
 ## Usage
 
 ```sh
 cc-harness-agents list [--local] [--header|--no-header]
 cc-harness-agents exec [--local] <agent> [--] <command…>
+cc-harness-agents names
 cc-harness-agents resolve-model <model-id>
+cc-harness-agents serves <model-id>
 ```
 
 `exec sol -- claude` probes the route, sets the routing environment and
@@ -44,13 +52,28 @@ cc-harness-agents resolve-model <model-id>
 tree). The target receives the route's key: `exec` is secret-bearing by design,
 so the boundary is who may run it. `list` prints one row per agent — raw TSV
 (`name model available note`, exactly four columns) to a pipe, a padded table
-to a terminal. `resolve-model` maps a recorded model id back to its agent with
-no network access. Exit codes: `1` unavailable, `2` usage or unknown agent,
-`3` not configured, `126` the target is not executable, `127` no such target;
+to a terminal. `names` prints the agent names, one per line, without network
+access — the wrapper's `--<name>` flags. `resolve-model` maps a recorded model
+id back to its agent with no network access. `serves` asks the remote route
+whether it still offers a model id. Exit codes: `1` unavailable, `2` usage or
+unknown agent, `3` not configured, `4` (`serves` only) the route answered
+without the model, `126` the target is not executable, `127` no such target;
 after a successful `exec` the status is the target's.
 
 These are external contracts: work-system discovers the helper on `PATH` and
-parses `list`; the resume bridge calls `resolve-model`.
+parses `list`; the wrapper calls `names` and `serves`, the resume bridge
+`resolve-model`.
+
+**The wrapper.** `claude --<agent>` routes through `exec` for every row of the
+effective table; `--local` picks the local route, `--yolo` is
+`--dangerously-skip-permissions`, and `--fable/--opus/--sonnet/--haiku` are
+native `--model` shorthands. Conflicting model flags are an error, never last
+one wins. `claude -c` and `claude --resume <id>` restore the agent and exact
+model the session last answered on (read from its transcript by
+`cc-harness-resume`). When that model maps to no agent, or the gateway no
+longer serves it, the session resumes on the Anthropic default with a notice; a
+route that fails (`403`, `401`, `502`, TLS) stays an error, and an explicit
+model flag always wins over the restore. Details and limits: [`docs/resume.md`](docs/resume.md).
 
 ## Configuration
 
@@ -137,7 +160,7 @@ normalized quota, and start/poll/cancel for a provider login.
 | Piece | Does |
 |---|---|
 | `cc-harness-agents` | Owns the model table, the route probes and the environment recipe. Everything else calls it. |
-| `claude()` wrapper | Interactive layer only: flag parsing, conflict checks, resume hint. |
+| `claude()` wrapper | Interactive layer only: flag parsing, conflict checks, resume restore and hint. Its flags come from the table. |
 | `cliproxy-auth` | Tunnels to the private admin API; runs provider OAuth logins on the host that keeps the tokens. |
 | quota helpers | Feed the statusline from the read-only usage API, always without blocking it. |
 | companion | The two narrow facades in front of the management API. |
@@ -189,7 +212,8 @@ that cost one command.
 - CLIProxyAPI on a host you control
 - an HTTPS ingress with a valid certificate — TLS is what authenticates the
   gateway, and there is deliberately no plaintext fallback
-- Claude Code; Go to build `cc-harness-agents` (no runtime dependencies)
+- Claude Code; Go to build `cc-harness-agents` (no runtime dependencies);
+  `zsh` for the wrapper and `python3` for the resume bridge
 - Cloudflare Access in front of the gateway: the remote route sends a service
   token on every request and refuses to run without the two
   `CLIPROXY_CF_ACCESS_<PROFILE>_*` variables
@@ -199,7 +223,8 @@ that cost one command.
 `make check` is the one gate, locally and in CI (macOS + Linux): gofmt, `go
 vet`, staticcheck, shellcheck/shfmt, `go test -race`, `tests/run` — the
 contract suite carried over from the bash implementation, running against the
-built binary through a local HTTPS test gateway — and finally `make build`, so
+built binary through a local HTTPS test gateway, plus the wrapper and resume
+suites (zsh, python3) — and finally `make build`, so
 the gate never passes on something that does not build. `make fmt` formats.
 [`tests/migration-coverage.md`](tests/migration-coverage.md) maps every
 upstream assertion to its place here.
