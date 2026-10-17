@@ -1,8 +1,9 @@
 # cc-router agent table — one row per foreign agent; a new agent is a new row.
 # Tab-separated, ten fields, no header row; lines starting with # are comments.
 #
-#   name      agent id, exposed as cc-harness:<name> (and as the claude
-#             wrapper's --<name> flag, which lives outside this repo)
+#   name      agent id, exposed as cc-harness:<name> and as the claude
+#             wrapper's --<name> flag (share/claude.zsh); it must not collide
+#             with a wrapper or Claude Code option, which would shadow it
 #   model     ANTHROPIC_MODEL — the LAST-KNOWN model for a discovering agent
 #   fable     ANTHROPIC_DEFAULT_FABLE_MODEL — the picker tier above opus. Left
 #             unset, picking it sends a claude-fable id to the gateway, out of

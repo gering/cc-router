@@ -6,18 +6,18 @@ implementation's suite at the equivalence baseline (first mapped at `f429346`;
 the deltas are summarized below).
 
 Counts are **assertion call sites**, not executed assertions: loops and
-`assert_secret_safe` (three checks) expand at run time. The suite here runs
-455 assertions (`tests/run`); upstream's figure included wrapper and parity
-checks that stay in dotfiles.
+`assert_secret_safe` (three checks) expand at run time. The routing suite here
+runs 473 assertions (`tests/run`), the wrapper suite 82.
 
 | Disposition | Sites |
 |---|---|
 | ported verbatim | 255 |
 | ported, amended after the cutover (Codex minor discovery) | 7 |
-| stays in dotfiles (wrapper, statusline parity, zsh functions) | 58 |
+| moved with the wrapper (`tests/test-claude-wrapper.sh`) | 48 |
+| stays in dotfiles (.zshrc wiring, listening.zsh) | 8 |
 | ported with a harness adaptation (noted per row) | 18 |
 | retargeted after the kimi row was removed (noted per row) | 7 |
-| replaced by an equivalent behavioural check | 5 |
+| replaced by an equivalent behavioural check | 7 |
 | retired (curl-specific, justified per row) | 2 |
 | **total** | **352** |
 
@@ -79,6 +79,22 @@ rungs in the replaced primary's class, and the other roles keep discovering.
 Rows marked *amended* below assert the new behaviour; the codex discovery,
 resume and resolve-model cases were added.
 
+**The wrapper moved** (cc-router, 2026-10-16, from dotfiles `e560b4d`):
+`share/claude.zsh` and the resume bridge `cmd/cc-harness-resume/` came across
+with their suites. The wrapper sites of dotfiles' `test-cc-harness-agents.sh`
+(rows marked *moved*) run in `tests/test-claude-wrapper.sh`; `.zshrc` wiring,
+`listening.zsh` and the statusline parity stay in dotfiles. The flags now come
+from `cc-harness-agents names`, so the per-row selector check became a loop over
+the effective table, plus cases for a user table adding and dropping a flag,
+unknown options passing through, and a missing helper.
+`scripts/test-cc-harness-resume.py` came across whole as
+`tests/test-cc-harness-resume.py` (38 tests; harness adapted to the package
+layout and a hermetic `HOME`), plus the not-served decision: a recorded model
+the gateway dropped resumes on the Anthropic default with a notice, a route
+failure stays an error with its layer and status, and neither an explicit flag
+nor `--local` nor a native session asks the remote route. `names` and `serves`
+have their own cases in the routing suite.
+
 | Upstream line | Assertion | Here |
 |---|---|---|
 | 318 | remote list succeeds | ported verbatim |
@@ -87,8 +103,8 @@ resume and resolve-model cases were added.
 | 321 | remote list marks a missing model unavailable | retargeted: grok without its composer haiku rung (was kimi without kimi-k2.7-code) |
 | 322 | remote list emits every table row | ported verbatim |
 | 323 | a captured listing carries no header line | ported verbatim |
-| 338 | the wrapper has a --$agent selector | stays in dotfiles: row ↔ wrapper/statusline parity (wrapper and statusline are not extracted yet) |
-| 340 | the wrapper has a --$agent selector | stays in dotfiles: row ↔ wrapper/statusline parity (wrapper and statusline are not extracted yet) |
+| 338 | the wrapper has a --$agent selector | replaced: every row `names` prints is a consumed flag (tests/test-claude-wrapper.sh); the statusline half of the parity check stays in dotfiles |
+| 340 | the wrapper has a --$agent selector | replaced: every row `names` prints is a consumed flag (tests/test-claude-wrapper.sh); the statusline half of the parity check stays in dotfiles |
 | 366 | an explicit header is accepted | ported verbatim |
 | 367 | the header names all four columns | ported verbatim |
 | 368 | the header leaves every agent row intact | ported verbatim |
@@ -214,62 +230,62 @@ resume and resolve-model cases were added.
 | 831 | empty remote credentials are rejected | ported verbatim |
 | 832 | empty-credential error is generic | ported verbatim |
 | 833 | empty-credential stderr hides other secrets | ported verbatim |
-| 897 | zsh wrapper routes foreign models remotely by default | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 898 | zsh remote prefix omits --local | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 899 | zsh remote route preserves prompt argv | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 902 | zsh wrapper accepts --local with a foreign model | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 903 | zsh local prefix delegates route selection to helper | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 906 | zsh wrapper treats --local after bare -- as passthrough | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 907 | passthrough --local does not select local routing | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 908 | passthrough --local reaches Claude argv | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 911 | zsh wrapper rejects --local without a foreign model | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 912 | zsh wrapper explains bare --local rejection | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 915 | zsh wrapper keeps native-model conflict detection | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 916 | zsh wrapper reports native-model conflict | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 919 | zsh wrapper keeps foreign-model conflict detection | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 920 | zsh wrapper reports foreign-model conflict | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 931 | zsh wrapper accepts --astra | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 932 | --astra hands the row name straight to the helper | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 933 | the selector is consumed, never leaked into Claude argv | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 934 | --astra preserves the prompt argv | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 940 | a plain launch still succeeds | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 941 | a plain launch never reaches the routing helper | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 949 | zsh wrapper accepts --$native_case | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 951 | --$native_case expands to a native --model | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 953 | the shorthand itself never reaches Claude argv | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 954 | --$native_case is native, so it never routes | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 958 | a native shorthand conflicts with a foreign flag | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 961 | the conflict names the shorthand, not --model | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 962 | a shorthand conflict never blames a bare --model | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 965 | a bare --model still conflicts with a foreign flag | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 966 | a bare --model is still named as itself | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 969 | a native shorthand conflicts with an explicit --model | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 970 | the shorthand/--model conflict is reported | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 973 | the conflict is caught in either order | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 976 | two different native shorthands conflict | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 977 | the native/native conflict is reported | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 980 | repeating the same native shorthand is not a conflict | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 981 | a repeated shorthand is only expanded once | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 984 | a literal --opus after bare -- is passthrough | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 985 | passthrough --opus reaches Claude argv | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 997 | zsh wrapper script path succeeds | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 999 | zsh wrapper pins the production system script path | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 1001 | zsh wrapper pins the production system script path | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 1003 | isolated resume test uses its deterministic script fake | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 1005 | zsh wrapper never executes PATH script | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 1007 | zsh wrapper never executes PATH script | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 1009 | resume history preserves yolo, local route, and model | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 1033 | $zsh_function_rel exists | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 1035 | .zshrc sources $zsh_function_rel | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 1037 | .zshrc sources $zsh_function_rel | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 1043 | .zshrc no longer defines $zsh_function_name() itself | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 1045 | .zshrc no longer defines $zsh_function_name() itself | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 1056 | the function files load in a bare zsh | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 1057 | listening.zsh defines listening | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 1058 | claude.zsh defines claude | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 1059 | sourcing the function files stays silent | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 1065 | listening rejects more than one argument | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
-| 1066 | listening explains its usage | stays in dotfiles: zsh wrapper / .zshrc / listening.zsh |
+| 897 | zsh wrapper routes foreign models remotely by default | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 898 | zsh remote prefix omits --local | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 899 | zsh remote route preserves prompt argv | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 902 | zsh wrapper accepts --local with a foreign model | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 903 | zsh local prefix delegates route selection to helper | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 906 | zsh wrapper treats --local after bare -- as passthrough | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 907 | passthrough --local does not select local routing | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 908 | passthrough --local reaches Claude argv | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 911 | zsh wrapper rejects --local without a foreign model | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 912 | zsh wrapper explains bare --local rejection | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 915 | zsh wrapper keeps native-model conflict detection | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 916 | zsh wrapper reports native-model conflict | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 919 | zsh wrapper keeps foreign-model conflict detection | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 920 | zsh wrapper reports foreign-model conflict | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 931 | zsh wrapper accepts --astra | moved with the wrapper: tests/test-claude-wrapper.sh (generalized from --astra to a loop over every `names` row) |
+| 932 | --astra hands the row name straight to the helper | moved with the wrapper: tests/test-claude-wrapper.sh (generalized from --astra to a loop over every `names` row) |
+| 933 | the selector is consumed, never leaked into Claude argv | moved with the wrapper: tests/test-claude-wrapper.sh (generalized from --astra to a loop over every `names` row) |
+| 934 | --astra preserves the prompt argv | moved with the wrapper: tests/test-claude-wrapper.sh (generalized from --astra to a loop over every `names` row) |
+| 940 | a plain launch still succeeds | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 941 | a plain launch never reaches the routing helper | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 949 | zsh wrapper accepts --$native_case | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 951 | --$native_case expands to a native --model | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 953 | the shorthand itself never reaches Claude argv | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 954 | --$native_case is native, so it never routes | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 958 | a native shorthand conflicts with a foreign flag | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 961 | the conflict names the shorthand, not --model | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 962 | a shorthand conflict never blames a bare --model | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 965 | a bare --model still conflicts with a foreign flag | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 966 | a bare --model is still named as itself | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 969 | a native shorthand conflicts with an explicit --model | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 970 | the shorthand/--model conflict is reported | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 973 | the conflict is caught in either order | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 976 | two different native shorthands conflict | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 977 | the native/native conflict is reported | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 980 | repeating the same native shorthand is not a conflict | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 981 | a repeated shorthand is only expanded once | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 984 | a literal --opus after bare -- is passthrough | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 985 | passthrough --opus reaches Claude argv | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 997 | zsh wrapper script path succeeds | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 999 | zsh wrapper pins the production system script path | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 1001 | zsh wrapper pins the production system script path | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 1003 | isolated resume test uses its deterministic script fake | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 1005 | zsh wrapper never executes PATH script | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 1007 | zsh wrapper never executes PATH script | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 1009 | resume history preserves yolo, local route, and model | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 1033 | $zsh_function_rel exists | stays in dotfiles: .zshrc wiring / listening.zsh |
+| 1035 | .zshrc sources $zsh_function_rel | stays in dotfiles: .zshrc wiring / listening.zsh |
+| 1037 | .zshrc sources $zsh_function_rel | stays in dotfiles: .zshrc wiring / listening.zsh |
+| 1043 | .zshrc no longer defines $zsh_function_name() itself | stays in dotfiles: .zshrc wiring / listening.zsh |
+| 1045 | .zshrc no longer defines $zsh_function_name() itself | stays in dotfiles: .zshrc wiring / listening.zsh |
+| 1056 | the function files load in a bare zsh | moved with the wrapper: tests/test-claude-wrapper.sh (claude.zsh only) |
+| 1057 | listening.zsh defines listening | stays in dotfiles: .zshrc wiring / listening.zsh |
+| 1058 | claude.zsh defines claude | moved with the wrapper: tests/test-claude-wrapper.sh (claude.zsh only) |
+| 1059 | sourcing the function files stays silent | moved with the wrapper: tests/test-claude-wrapper.sh (claude.zsh only) |
+| 1065 | listening rejects more than one argument | stays in dotfiles: .zshrc wiring / listening.zsh |
+| 1066 | listening explains its usage | stays in dotfiles: .zshrc wiring / listening.zsh |
 | 1111 | discovery over the live catalog succeeds | ported verbatim |
 | 1112 | the live catalog selects grok-4.6, its newest candidate, with no note | ported verbatim |
 | 1113 | no 4.20 variant is ever selected | ported verbatim |

@@ -48,8 +48,8 @@ done
 # shellcheck source=/dev/null
 . "$TMP_ROOT/gateway.env"
 
-PASS=0
-FAIL=0
+# shellcheck source=tests/assert.sh disable=SC1091
+. "$(dirname "${BASH_SOURCE[0]}")/assert.sh"
 RC=0
 OUT=""
 ERR=""
@@ -61,49 +61,6 @@ CURL_COUNT=""
 CURL_LOG=""
 COMMON_PATH=""
 TARGET="$TMP_ROOT/capture-env"
-
-pass() {
-  PASS=$((PASS + 1))
-  printf 'ok %d - %s\n' "$PASS" "$1"
-}
-
-fail() {
-  FAIL=$((FAIL + 1))
-  printf 'not ok - %s\n' "$1" >&2
-  return 0
-}
-
-assert_eq() {
-  local expected="$1" actual="$2" label="$3"
-  if [ "$actual" = "$expected" ]; then
-    pass "$label"
-  else
-    printf 'expected: <%s>\nactual:   <%s>\n' "$expected" "$actual" >&2
-    fail "$label"
-  fi
-}
-
-assert_contains() {
-  local haystack="$1" needle="$2" label="$3"
-  case "$haystack" in
-    *"$needle"*) pass "$label" ;;
-    *)
-      printf 'missing: <%s>\nin: <%s>\n' "$needle" "$haystack" >&2
-      fail "$label"
-      ;;
-  esac
-}
-
-assert_not_contains() {
-  local haystack="$1" needle="$2" label="$3"
-  case "$haystack" in
-    *"$needle"*)
-      printf 'unexpected: <%s>\nin: <%s>\n' "$needle" "$haystack" >&2
-      fail "$label"
-      ;;
-    *) pass "$label" ;;
-  esac
-}
 
 assert_secret_safe() {
   local text="$1" label="$2"
@@ -171,6 +128,7 @@ run_capture() {
 is_remote_run() {
   case "${1:-}" in
     exec) [ "${2:-}" != --local ] ;;
+    serves) return 0 ;;
     list)
       local arg
       for arg in "${@:2}"; do [ "$arg" != --local ] || return 1; done
@@ -1618,6 +1576,47 @@ setup_case
 run_capture "$HELPER" resolve-model claude-opus-5
 assert_eq 1 "$RC" "a native model has no agent profile"
 
+# --- names: the claude wrapper's foreign-model flags ---------------------------
+# Offline (no gateway, no credentials), in table order, and from the EFFECTIVE
+# table: a user override adds and removes flags with no wrapper edit.
+setup_case
+run_capture env -i HOME="$CASE_HOME" PATH="/usr/bin:/bin" "$HELPER" names
+assert_eq 0 "$RC" "names needs no route configuration"
+assert_eq $'grok\nsol\nterra\nluna\nastra' "$OUT" "names lists the packaged rows in table order"
+mkdir -p "$CASE_HOME/.config/cc-router"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  nova nova-1 nova-1 nova-1 nova-1 nova-1 200000 xai -xai-login xAI \
+  > "$CASE_HOME/.config/cc-router/models.tsv"
+run_capture env -i HOME="$CASE_HOME" PATH="/usr/bin:/bin" "$HELPER" names
+assert_eq nova "$OUT" "names follows a user table that replaces the packaged one"
+run_capture env -i HOME="$CASE_HOME" PATH="/usr/bin:/bin" "$HELPER" names extra
+assert_eq 2 "$RC" "names takes no arguments"
+
+# --- serves: "the gateway dropped this model" vs. "the route failed" ----------
+# A resume pins the recorded model only while the route still offers it; the
+# caller tells the two apart by exit status, never by message text.
+setup_case
+write_remote_profile TEST
+set_remote_env
+run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_BODY="$ALL_MODELS" "$HELPER" serves gpt-5.6-sol
+assert_eq 0 "$RC" "serves accepts an id the catalog offers"
+assert_eq 1 "$(curl_calls)" "serves probes exactly once"
+run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_BODY="$(catalog_without gpt-5.6-sol)" "$HELPER" serves gpt-5.6-sol
+assert_eq 4 "$RC" "a model the route no longer offers has its own status"
+assert_contains "$ERR" 'no longer serves gpt-5.6-sol' "and the model is named"
+assert_secret_safe "$ERR" "the not-served notice hides secrets"
+for spec in '401|proxy API key rejected' '403|Cloudflare Access rejected' '502|proxy origin unavailable'; do
+  setup_case
+  write_remote_profile TEST
+  set_remote_env
+  run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_STATUS="${spec%%|*}" FAKE_CURL_BODY='{}' "$HELPER" serves gpt-6-sol
+  assert_eq 1 "$RC" "a ${spec%%|*} is a route failure, not a dropped model"
+  assert_contains "$ERR" "${spec#*|}" "serves names the failing layer (${spec%%|*})"
+done
+setup_case
+run_capture env -i HOME="$CASE_HOME" PATH="/usr/bin:/bin" "$HELPER" serves gpt-6-sol
+assert_eq 3 "$RC" "serves without a configured route is capability absent"
+
 # --- replacements for curl-argv assertions ------------------------------------
 # Upstream asserted curl's flags (--max-redirs 0, --max-filesize, --proto
 # =https, --header @-). The Go binary has no curl; these cases assert the same
@@ -1663,9 +1662,4 @@ assert_contains "$ERR" 'must use https://' "the plaintext refusal says why"
 assert_eq 0 "$(curl_calls)" "a plaintext gateway is never contacted"
 assert_secret_safe "$ERR" "the URL refusal hides secrets"
 
-printf '1..%d\n' "$PASS"
-if [ "$FAIL" -ne 0 ]; then
-  printf '%d tests failed\n' "$FAIL" >&2
-  exit 1
-fi
-printf '%d tests passed\n' "$PASS"
+finish

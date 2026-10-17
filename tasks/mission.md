@@ -18,13 +18,15 @@ repository:
 | `.scripts/cliproxy-auth` | server-side OAuth logins, controlled local fallback |
 | `.claude/cliproxy-quota-source.sh` + `{codex,grok,kimi}-quota.sh` | statusline quota |
 | `services/cliproxy-companion/` | usage and admin facades (Go) |
-| `.zshrc` `claude()` | the interactive flag layer |
+| `.zsh/functions/claude.zsh` `claude()` | the interactive flag layer — moved: `share/claude.zsh` |
+| `.scripts/cc-harness-resume` | interim resume bridge — moved: `cmd/cc-harness-resume/` |
 | `docs/cliproxyapi-remote.md` | operator runbook |
 | `.claude/knowledge/services/cliproxy-remote.md` | the pitfalls worth keeping |
 
 Test suites that must come along, because they encode the security contract:
-the routing suite (done — 389 assertions run against the Go core in `tests/run`,
-mapped in `tests/migration-coverage.md`), 309 auth-CLI tests and 180 quota
+the routing suite (done — it runs against the Go core in `tests/run`, mapped
+in `tests/migration-coverage.md`; the wrapper and resume suites came along with
+the wrapper), 309 auth-CLI tests and 180 quota
 tests, plus the companion's Go suite with `-race`. The last three figures were
 read off `gering/dotfiles` at `f0effff`; re-count them when those pieces move.
 

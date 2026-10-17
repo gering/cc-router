@@ -161,9 +161,10 @@ func (c *Catalog) missing(r Row) []string {
 	return out
 }
 
-// overrideVar is CC_HARNESS_MODEL_<AGENT>.
+// overrideVar is CC_HARNESS_MODEL_<AGENT>, with the '-' and '.' an agent name
+// may carry mapped to '_' so the result is a shell identifier.
 func overrideVar(agent string) string {
-	return "CC_HARNESS_MODEL_" + strings.ToUpper(strings.ReplaceAll(agent, "-", "_"))
+	return "CC_HARNESS_MODEL_" + strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(agent))
 }
 
 // splitRelease locates an id's release: the first '-'-separated segment that

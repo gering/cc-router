@@ -10,9 +10,10 @@ import (
 // the process IS the target and its status comes back unchanged.
 const (
 	exitOK          = 0
-	exitUnavailable = 1 // exec: agent not available; resolve-model: no profile
+	exitUnavailable = 1 // exec: agent not available; resolve-model: no profile; serves: route failed
 	exitUsage       = 2 // usage error, or exec: unknown agent
 	exitCapability  = 3 // the selected route has no usable configuration
+	exitNotServed   = 4 // serves: the route answered and lacks the model
 	// A failed exec reports like a shell would.
 	exitCannotExecute = 126
 	exitNotFound      = 127
