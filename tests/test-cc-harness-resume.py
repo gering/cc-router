@@ -30,6 +30,7 @@ WRAPPER = ROOT / 'share/claude.zsh'
 PKG = Path(os.environ['CC_ROUTER_PKG'])
 RESOLVER = PKG / 'bin/cc-harness-resume'
 DRIVER = PKG / 'bin/testdriver'
+SHIM = PKG / 'bin/shim/claude'
 # The resolver has no .py suffix, so import it by location. load_module() would
 # do too, but it is gone in Python 3.12.
 _spec = importlib.util.spec_from_file_location(
@@ -706,6 +707,17 @@ class SidecarTests(Fixture):
         self.sidecar(agent='sol', model='gpt-6-sol')
         data, _ = self.run_wrapper('-c', CC_ROUTER_AGENT='grok', CLIPROXY_ROUTE='remote')
         self.assertEqual((data['agent'], data['args'], data['pins']), ('grok', ['-c'], {}))
+
+    def test_direct_executable_restores_through_the_shim(self):
+        # No shell function anywhere: the shim alone. It execs the production
+        # helper, which does not trust the test CA, so the record is local.
+        self.sidecar(agent='sol', model='gpt-6-sol', route='local')
+        result = subprocess.run([str(SHIM), '--resume', A], cwd=self.cwd, env=self.env(),
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads(result.stdout)
+        self.assertEqual((data['agent'], data['route'], data['model']), ('sol', 'local', 'gpt-6-sol'))
+        self.assertEqual(data['args'], ['--model', 'gpt-6-sol', '--resume', A])
 
 
 class HelperFailureTests(unittest.TestCase):

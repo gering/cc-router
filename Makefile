@@ -9,7 +9,10 @@ BIN     := bin/cc-harness-agents
 # The resume bridge is a script; bin/ gets a copy so it finds the binary as
 # its sibling, exactly as it will on PATH.
 RESUME  := bin/cc-harness-resume
-SH      := install.sh tests/run tests/test-install.sh
+# The shim gets a directory of its own: that directory goes ahead of the
+# native launcher on PATH, and nothing else in bin/ is named claude.
+SHIM    := bin/shim/claude
+SH      := install.sh tests/run tests/test-install.sh cmd/claude-shim/claude
 BASH    := tests/assert.sh tests/test-cc-harness-agents.sh tests/test-claude-wrapper.sh
 SHFMT   := -i 2 -ci -sr
 
@@ -21,6 +24,9 @@ build:
 	mv -f $(BIN).tmp $(BIN)
 	cp cmd/cc-harness-resume/cc-harness-resume $(RESUME).tmp
 	mv -f $(RESUME).tmp $(RESUME)
+	mkdir -p bin/shim
+	cp cmd/claude-shim/claude $(SHIM).tmp
+	mv -f $(SHIM).tmp $(SHIM)
 
 check: lint test build
 
@@ -43,4 +49,4 @@ fmt:
 	$(TOOL) shfmt -w $(SHFMT) $(SH) $(BASH)
 
 clean:
-	rm -f $(BIN) $(BIN).tmp $(RESUME) $(RESUME).tmp
+	rm -f $(BIN) $(BIN).tmp $(RESUME) $(RESUME).tmp $(SHIM) $(SHIM).tmp

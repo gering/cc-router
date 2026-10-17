@@ -1,9 +1,9 @@
 #!/bin/sh
 # Contract suites against freshly built binaries. Builds the production binary,
 # the test driver and the test gateway into a temporary package layout
-# (bin/ next to a share/ link, the resume bridge copied in as `make build` does),
-# then runs every suite and reports all failures. The wrapper suites need zsh
-# and python3.
+# (bin/ next to a share/ link, the resume bridge and the shim copied in as
+# `make build` does), then runs every suite and reports all failures. The
+# wrapper suites need zsh and python3.
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -21,6 +21,8 @@ for target in cmd/cc-harness-agents tests/testdriver tests/gateway; do
   (cd "$ROOT" && "$GO" build -o "$PKG/bin/${target##*/}" "./$target")
 done
 cp "$ROOT/cmd/cc-harness-resume/cc-harness-resume" "$PKG/bin/"
+mkdir -p "$PKG/bin/shim"
+cp "$ROOT/cmd/claude-shim/claude" "$PKG/bin/shim/"
 
 status=0
 bash "$ROOT/tests/test-cc-harness-agents.sh" "$PKG" || status=1

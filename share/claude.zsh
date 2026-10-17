@@ -10,8 +10,8 @@
 # The terminal layer only: the transcript capture behind the resume-history
 # hint, and the herdr `script` skip. Flags (`--<agent>`, `--local`, `--yolo`,
 # `--opus` …), conflicts, the resume restore and routing are all
-# `cc-harness-agents launch`, so a caller that never sources this file gets
-# the same behaviour.
+# `cc-harness-agents launch` — the same path the executable shim takes, so a
+# caller that never sources this file gets the same behaviour.
 
 # Resolve an external command to its PATH location, printing nothing.
 # Always by resolved path, never by bare name: in zsh a bare name also matches

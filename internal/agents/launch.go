@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-// launch is the executable path of `claude`: the interactive wrapper hands it
-// Claude's argv, and it replaces itself with the native
+// launch is the executable path of `claude`: the shim and the interactive
+// wrapper both hand it Claude's argv, and it replaces itself with the native
 // launcher — routed when a foreign-model flag or a resumed session asks for
 // it, untouched otherwise. Parsing, conflicts and the resume restore live
 // here exactly once, so a caller that never sources a shell function gets the
@@ -294,8 +294,8 @@ func (a *App) refuse(err error) error {
 
 // nativeClaude is the launcher this layer execs: CC_ROUTER_CLAUDE, or the
 // native installer's ~/.local/bin/claude. A configured path and never a PATH
-// search: a PATH entry must not decide which binary receives the routing
-// secrets.
+// search — the shim IS `claude` on PATH, so a name lookup would find itself,
+// and a PATH entry must not decide which binary receives the routing secrets.
 func (a *App) nativeClaude(home string) (string, error) {
 	path := a.Env.Get("CC_ROUTER_CLAUDE")
 	if path == "" {
@@ -308,7 +308,8 @@ func (a *App) nativeClaude(home string) (string, error) {
 		return "", fail(exitNotFound, "no Claude Code launcher at %s — install Claude Code or set CC_ROUTER_CLAUDE", oneLine(path))
 	}
 	if self, err := filepath.EvalSymlinks(a.Executable); err == nil {
-		if real == self {
+		shim, _ := filepath.EvalSymlinks(filepath.Join(filepath.Dir(self), "shim", "claude"))
+		if real == self || real == shim {
 			return "", fail(exitCapability, "%s is cc-router itself, not Claude Code — point CC_ROUTER_CLAUDE at the native launcher", oneLine(path))
 		}
 	}

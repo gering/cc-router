@@ -2,8 +2,8 @@
 #
 # Black-box tests for the interactive claude wrapper (share/claude.zsh) and
 # the launch path behind it: flag parsing, conflicts, the foreign-model flags
-# read from the helper's table, passthrough, the herdr `script` skip and the
-# resume-history hint. The resume restore itself is
+# read from the helper's table, passthrough, the herdr `script` skip, the
+# resume-history hint, and the executable shim. The resume restore itself is
 # tests/test-cc-harness-resume.py.
 # Usage: tests/test-claude-wrapper.sh <pkg-dir>
 # Env: ZSH_BIN (default: zsh on PATH) — the zsh binary under test
@@ -13,6 +13,7 @@ set -euo pipefail
 PKG="${1:?usage: $0 <pkg-dir>}"
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 HELPER="$PKG/bin/cc-harness-agents"
+SHIM="$PKG/bin/shim/claude"
 ZSH_BIN="${ZSH_BIN:-$(command -v zsh)}"
 CLAUDE_ZSH="$ROOT/share/claude.zsh"
 TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/test-claude-wrapper.XXXXXX")
@@ -313,6 +314,45 @@ if [ ! -e "$FAKE_SCRIPT_RAN" ]; then
 else
   fail "off macOS script(1) is never invoked"
 fi
+
+# The executable shim: the same launch path without any shell function, as
+# herdr's direct restores, process managers and other shells reach it. It
+# execs the PRODUCTION helper next to it, which does not trust the test
+# gateway's CA, so routing is shown on the local route.
+: > "$WRAPPER_ROUTE_LOG"
+run_capture env -i "${ROUTE_ENV[@]}" PATH="$PKG/bin/shim:$COMMON_PATH" /bin/sh -c 'claude --local --sol --yolo prompt'
+assert_eq 0 "$RC" "the shim launches without a shell function"
+assert_eq 'sol local' "$(routed)" "the shim routes a foreign-model flag"
+assert_eq $'--dangerously-skip-permissions\nprompt' "$(< "$WRAPPER_CLAUDE_LOG")" "the shim parses like the wrapper"
+
+# Every step execs: the process that ran the shim IS Claude, so nothing
+# lingers between a pane and its agent. Claude's own status comes back.
+cat > "$FAKE_BIN/claude-pid" << 'FAKE_PID'
+#!/bin/sh
+echo "$$" > "$WRAPPER_CLAUDE_LOG"
+exit 7
+FAKE_PID
+chmod +x "$FAKE_BIN/claude-pid"
+# Expanded by the child sh, not this Bash test harness.
+# shellcheck disable=SC2016
+run_capture env -i "${ROUTE_ENV[@]}" CC_ROUTER_CLAUDE="$FAKE_BIN/claude-pid" \
+  /bin/sh -c 'echo "$$"; exec "$1" --resume 12345678-1234-1234-1234-123456789abc' sh "$SHIM"
+assert_eq 7 "$RC" "the shim preserves Claude's exit status"
+assert_eq "$OUT" "$(< "$WRAPPER_CLAUDE_LOG")" "no shim or helper process lingers: Claude keeps the caller's pid"
+
+# Found through a link, the shim still finds its own helper.
+ln -s "$SHIM" "$TMP_ROOT/linked-claude"
+run_capture env -i "${ROUTE_ENV[@]}" "$TMP_ROOT/linked-claude" prompt
+assert_eq 0 "$RC" "a linked shim resolves its real location"
+
+# The native launcher is configured, never looked up by name: pointing it at
+# the shim itself is refused instead of recursing.
+run_capture env -i "${ROUTE_ENV[@]}" CC_ROUTER_CLAUDE="$TMP_ROOT/linked-claude" "$SHIM" prompt
+assert_eq 3 "$RC" "a launcher that is the shim itself is refused"
+assert_contains "$ERR" 'not Claude Code' "and the refusal says why"
+run_capture env -i "${ROUTE_ENV[@]}" CC_ROUTER_CLAUDE="$TMP_ROOT/absent" "$SHIM" prompt
+assert_eq 127 "$RC" "a missing native launcher is not found"
+assert_contains "$ERR" 'set CC_ROUTER_CLAUDE' "and the message names the setting"
 
 # The file must define its function in a bare shell, with no startup output
 # that could disturb an instant prompt.
