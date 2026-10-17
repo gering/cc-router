@@ -22,6 +22,10 @@ var providerSelectors = []string{
 	"CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD",
 }
 
+// keyAgent names the routed row in the session's environment: non-secret, so
+// the statusline can record which agent a session runs on without inferring it.
+const keyAgent = "CC_ROUTER_AGENT"
+
 // routing is the route-specific half of the environment recipe.
 type routing struct {
 	route   string // CLIPROXY_ROUTE: the statusline keys its caches on it
@@ -41,6 +45,7 @@ func routedEnv(base *Env, rt routing, eff Row) *Env {
 		{"ANTHROPIC_AUTH_TOKEN", rt.token},
 		{"ANTHROPIC_CUSTOM_HEADERS", rt.headers},
 		{"CLIPROXY_ROUTE", rt.route},
+		{keyAgent, eff.Name},
 	}
 	if rt.noProxy != "" {
 		set = append(set, [2]string{"NO_PROXY", rt.noProxy}, [2]string{"no_proxy", rt.noProxy})

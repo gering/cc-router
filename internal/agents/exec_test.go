@@ -17,7 +17,7 @@ func TestRoutedEnv(t *testing.T) {
 		"no_proxy": "127.0.0.1,localhost", "ANTHROPIC_MODEL": "gpt-6-astra", "CLAUDE_CODE_SUBAGENT_MODEL": "gpt-6-astra",
 		"ANTHROPIC_DEFAULT_FABLE_MODEL": "gpt-6-astra", "ANTHROPIC_DEFAULT_OPUS_MODEL": "gpt-6-sol",
 		"ANTHROPIC_DEFAULT_SONNET_MODEL": "gpt-5.6-terra", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-6-luna",
-		"CLAUDE_CODE_MAX_CONTEXT_TOKENS": "372000",
+		"CLAUDE_CODE_MAX_CONTEXT_TOKENS": "372000", "CC_ROUTER_AGENT": "astra",
 	}
 	for _, s := range providerSelectors {
 		want[s] = ""
