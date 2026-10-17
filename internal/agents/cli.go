@@ -3,8 +3,8 @@
 // agent table, the route probes and the routing environment; callers choose
 // an agent and, optionally, the route.
 //
-// The CLI (list, exec, names, resolve-model, serves) is an external contract —
-// see README.md. Remote is the default route; --local selects the machine-local
+// The CLI (list, exec, names, resolve-model, serves, launch) is an external
+// contract — see README.md. Remote is the default route; --local selects the machine-local
 // gateway and is never an automatic fallback.
 package agents
 
@@ -23,6 +23,7 @@ const usageText = `usage: cc-harness-agents list [--local] [--header|--no-header
        cc-harness-agents names
        cc-harness-agents resolve-model <model-id>
        cc-harness-agents serves <model-id>
+       cc-harness-agents launch [--replay-to <file>] -- <claude args…>
 `
 
 // App is one invocation with every side effect injectable.
@@ -86,6 +87,8 @@ func (a *App) run(args []string) error {
 		return a.resolveModel(home, args[1:])
 	case "serves":
 		return a.serves(home, args[1:])
+	case "launch":
+		return a.launch(home, args[1:])
 	case "-h", "--help", "help":
 		io.WriteString(a.Stdout, usageText)
 		return nil
@@ -132,6 +135,10 @@ func (a *App) serves(home string, args []string) error {
 	if len(args) != 1 || args[0] == "" {
 		return usageError()
 	}
+	return a.servesModel(home, args[0])
+}
+
+func (a *App) servesModel(home, model string) error {
 	cfg, err := LoadConfig(a.Env, home)
 	if err != nil {
 		return err
@@ -144,8 +151,8 @@ func (a *App) serves(home string, args []string) error {
 	if cat.State != catalogValid {
 		return fail(exitUnavailable, "remote route unavailable — %s", note)
 	}
-	if !cat.has(args[0]) {
-		return fail(exitNotServed, "the remote route no longer serves %s", oneLine(args[0]))
+	if !cat.has(model) {
+		return fail(exitNotServed, "the remote route no longer serves %s", oneLine(model))
 	}
 	return nil
 }

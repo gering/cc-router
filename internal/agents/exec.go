@@ -103,6 +103,12 @@ func (a *App) exec(home string, args []string) error {
 	if want == "" || len(args) == 0 {
 		return usageError()
 	}
+	return a.routed(home, want, local, args)
+}
+
+// routed is exec's routing step, shared with launch: route <want> and replace
+// the process with argv.
+func (a *App) routed(home, want string, local bool, args []string) error {
 	inv, err := a.prepare(home)
 	if err != nil {
 		return err

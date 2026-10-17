@@ -1,26 +1,35 @@
 #!/usr/bin/env python3
-"""Offline regression tests: real wrapper/resolver, fake routed executor and CLI.
+"""Offline regression tests: real wrapper, launcher and resolver; fake Claude.
 
 usage: CC_ROUTER_PKG=<pkg-dir> python3 tests/test-cc-harness-resume.py [unittest args]
        tests/run   # builds the package layout and runs every suite
 
 The package layout is bin/cc-harness-agents next to bin/cc-harness-resume, as
-`make build` leaves them: the resolver asks its sibling binary for the route.
+`make build` leaves them: launch asks its sibling resolver for a session's
+model, and the resolver its sibling binary for the route. Routing is real: the
+launcher is tests/testdriver (the production code, trusting only the test
+gateway's CA), and the test gateway plays the remote route and the local port.
 """
+import atexit
 import importlib.machinery
 import importlib.util
 import json
 import os
 from pathlib import Path
+import re
+import shlex
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 ZSH_BIN = os.environ.get('ZSH_BIN') or shutil.which('zsh')  # same knob as test-claude-wrapper.sh
 ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = ROOT / 'share/claude.zsh'
-RESOLVER = Path(os.environ['CC_ROUTER_PKG']) / 'bin/cc-harness-resume'
+PKG = Path(os.environ['CC_ROUTER_PKG'])
+RESOLVER = PKG / 'bin/cc-harness-resume'
+DRIVER = PKG / 'bin/testdriver'
 # The resolver has no .py suffix, so import it by location. load_module() would
 # do too, but it is gone in Python 3.12.
 _spec = importlib.util.spec_from_file_location(
@@ -29,9 +38,34 @@ resolver = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(resolver)
 A = '11111111-1111-4111-8111-111111111111'
 B = '22222222-2222-4222-8222-222222222222'
+# Every model the packaged table names, plus the user-table and retained ids
+# the cases restore: the default catalog serves them all.
+SERVED = sorted({m for line in (ROOT / 'share/models.tsv').read_text().splitlines()
+                 if line and not line.startswith('#') for m in line.split('\t')[1:6]}
+                | {'nova-1', 'gpt-5.6-sol', 'gpt-5.6-luna'})
 
 
-class ResumeTests(unittest.TestCase):
+def start_gateway():
+    """The suite's one test gateway, for the life of the process."""
+    root = Path(tempfile.mkdtemp(prefix='test-cc-harness-resume.'))
+    proc = subprocess.Popen([str(PKG / 'bin/gateway'), '-root', str(root)], stdin=subprocess.PIPE)
+    atexit.register(lambda: (proc.stdin.close(), proc.wait(), shutil.rmtree(root, ignore_errors=True)))
+    env_file = root / 'gateway.env'
+    for _ in range(100):
+        if env_file.exists():
+            break
+        time.sleep(0.05)
+    values = dict(line.split('=', 1) for line in env_file.read_text().splitlines())
+    return root, {k: shlex.split(v)[0] for k, v in values.items()}
+
+
+GATEWAY_ROOT, GATEWAY = start_gateway()
+
+
+class Fixture(unittest.TestCase):
+    """A project dir, Claude's config dir, the package's launcher and a case
+    on the test gateway."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -44,28 +78,41 @@ class ResumeTests(unittest.TestCase):
         self.bin = self.base / 'bin'
         self.bin.mkdir()
         (self.bin / 'cc-harness-resume').symlink_to(RESOLVER)
-        # The routed executor is fake; `names` is the real table's. `serves`
-        # answers TEST_SERVES (default: served) and leaves a trace, so a test
-        # can tell whether the wrapper asked at all.
-        self.exe('cc-harness-agents', f'''#!/bin/bash
-case "$1" in
-  names) exec {RESOLVER.with_name('cc-harness-agents')} names ;;
-  serves)
-    : > "{self.base}/serves-asked"
-    [ -z "$TEST_SERVES_ERR" ] || echo "$TEST_SERVES_ERR" >&2
-    exit "${{TEST_SERVES:-0}}" ;;
-esac
-shift
-route=remote
-if [ "$1" = --local ]; then route=local; shift; fi
-agent="$1"; shift; shift
-export TEST_AGENT="$agent" TEST_ROUTE="$route"
-exec "$@"
-''')
+        (self.bin / 'cc-harness-agents').symlink_to(DRIVER)
+        # Claude is fake: it reports its argv and what routing it was handed.
         self.exe('claude', '''#!/usr/bin/env python3
 import os,json,sys
-print(json.dumps({'args':sys.argv[1:], 'agent':os.getenv('TEST_AGENT'), 'route':os.getenv('TEST_ROUTE'), 'pins':{k:v for k,v in os.environ.items() if k.startswith('CC_HARNESS_MODEL_')}}))
+print(json.dumps({'args':sys.argv[1:], 'agent':os.getenv('CC_ROUTER_AGENT'), 'route':os.getenv('CLIPROXY_ROUTE'), 'model':os.getenv('ANTHROPIC_MODEL'), 'pid':os.getpid(), 'pins':{k:v for k,v in os.environ.items() if k.startswith('CC_HARNESS_MODEL_')}}))
 ''')
+        self.case = re.sub(r'[^A-Za-z0-9._]', '_', self.id())
+        self.gateway = GATEWAY_ROOT / self.case / 'gateway'
+        self.gateway.mkdir(parents=True)
+        self.serve(SERVED)
+        # The local route: a token, codex credentials and a fresh
+        # prepare-local window, with the gateway's accepting port as the proxy.
+        proxy = self.base / '.cli-proxy-api'
+        proxy.mkdir()
+        (proxy / 'client.key').write_text('local-token\n')
+        (proxy / 'codex-test.json').write_text('{"access_token":"c","refresh_token":"r"}\n')
+        marker = self.base / '.cache/cliproxy-auth/local-ready.json'
+        marker.parent.mkdir(parents=True)
+        marker.write_text(json.dumps({
+            'version': 1, 'prepared_at': '2026-01-01T00:00:00Z',
+            'expires_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + 3600)),
+            'ssh_host': 'gateway-host', 'remote_path': '/srv/cliproxyapi/auths',
+            'files': [{'name': 'codex-test.json', 'sha256': '0' * 64}]}) + '\n')
+
+    def serve(self, models=None, status=None):
+        """What the remote route answers this case: a catalog, or a status."""
+        if models is not None:
+            (self.gateway / 'body').write_text(json.dumps({'data': [{'id': m} for m in models]}))
+        if status is not None:
+            (self.gateway / 'status').write_text(str(status))
+
+    def probes(self):
+        """Catalog requests the remote route has seen this case."""
+        count = self.gateway / 'count'
+        return int(count.read_text()) if count.exists() else 0
 
     def exe(self, name, body):
         p = self.bin / name
@@ -78,12 +125,22 @@ print(json.dumps({'args':sys.argv[1:], 'agent':os.getenv('TEST_AGENT'), 'route':
         p.write_text(''.join(json.dumps(r)+'\n' for r in [*records, *extra]))
         return p
 
-    def raw_wrapper(self, *args, **extra):
+    def env(self, **extra):
         env = dict(os.environ, PATH=f'{self.bin}:'+os.environ['PATH'], CLAUDE_CONFIG_DIR=str(self.config),
-                   HERDR_ENV='1', HOME=str(self.base), **extra)
+                   HERDR_ENV='1', HOME=str(self.base), PWD=str(self.cwd), CC_ROUTER_CLAUDE=str(self.bin / 'claude'),
+                   CC_ROUTER_REMOTE_URL=f"https://127.0.0.1:{GATEWAY['GATEWAY_TRUSTED_PORT']}/c/{self.case}",
+                   CC_ROUTER_LOCAL_PORT=GATEWAY['GATEWAY_LIVE_PORT'], CC_ROUTER_TEST_CA_FILE=GATEWAY['GATEWAY_CA'],
+                   CLIPROXY_PROFILE='TEST', CLIPROXY_API_KEY_TEST='remote-api-secret',
+                   CLIPROXY_CF_ACCESS_TEST_CLIENT_ID='access-id-secret',
+                   CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET='access-client-secret')
         for key in list(env):
-            if key.startswith('CC_HARNESS_MODEL_'): del env[key]
-        return subprocess.run([ZSH_BIN,'-f','-c','source "$1"; shift; claude "$@"','zsh',str(WRAPPER),*args], cwd=self.cwd, env=env, capture_output=True,text=True)
+            if key.startswith(('CC_HARNESS_MODEL_', 'CLIPROXY_ROUTE', 'CC_ROUTER_AGENT', 'XDG_CACHE_HOME')): del env[key]
+        env.update(extra)
+        return {k: v for k, v in env.items() if v is not None}
+
+    def raw_wrapper(self, *args, **extra):
+        return subprocess.run([ZSH_BIN,'-f','-c','source "$1"; shift; claude "$@"','zsh',str(WRAPPER),*args],
+                              cwd=self.cwd, env=self.env(**extra), capture_output=True, text=True)
 
     def run_resolver(self, selector, cwd=None):
         cwd = cwd or self.cwd
@@ -96,13 +153,19 @@ print(json.dumps({'args':sys.argv[1:], 'agent':os.getenv('TEST_AGENT'), 'route':
         self.assertEqual(result.returncode,0,result.stderr)
         return json.loads(result.stdout), result.stderr
 
+
+
+class ResumeTests(Fixture):
+    """The transcript bridge decides."""
+
     def test_uuid_restores_model_and_route(self):
         self.session()
         data, _ = self.run_wrapper('--resume', A, 'hello world')
         self.assertEqual(data['agent'],'sol')
         self.assertEqual(data['pins'],{'CC_HARNESS_MODEL_SOL':'gpt-6-sol'})
         self.assertEqual(data['args'],['--model','gpt-6-sol','--resume',A,'hello world'])
-        self.assertTrue((self.base / 'serves-asked').exists(), 'a remote restore asks the route first')
+        # Once by `serves` before the restore, once by the routed exec.
+        self.assertEqual(self.probes(), 2, 'a remote restore asks the route first')
 
     def test_dotted_agent_name_restores_through_a_shell_identifier(self):
         # A user-table name may carry '.', which no shell identifier can: the
@@ -206,8 +269,8 @@ print(json.dumps({'args':sys.argv[1:], 'agent':os.getenv('TEST_AGENT'), 'route':
 
     def test_unserved_recorded_model_falls_back_to_anthropic(self):
         self.session(models=('gpt-5.6-sol',))
-        data, warning = self.run_wrapper('--resume', A, TEST_SERVES='4',
-                                         TEST_SERVES_ERR='cc-harness-agents: the remote route no longer serves gpt-5.6-sol')
+        self.serve([m for m in SERVED if m != 'gpt-5.6-sol'])
+        data, warning = self.run_wrapper('--resume', A)
         self.assertIsNone(data['agent'])
         self.assertEqual(data['pins'], {})
         self.assertEqual(data['args'], ['--model', 'default', '--resume', A])
@@ -218,13 +281,14 @@ print(json.dumps({'args':sys.argv[1:], 'agent':os.getenv('TEST_AGENT'), 'route':
         # The decision was made for the resolved transcript, so the fallback
         # pins it too: a bare -c would let Claude pick another one.
         self.session(models=('gpt-5.6-sol',))
-        data, _ = self.run_wrapper('-c', TEST_SERVES='4')
+        self.serve([m for m in SERVED if m != 'gpt-5.6-sol'])
+        data, _ = self.run_wrapper('-c')
         self.assertEqual(data['args'], ['--model', 'default', '--resume=' + A])
 
     def test_route_failure_on_resume_fails_closed(self):
         self.session()
-        result = self.raw_wrapper('-c', TEST_SERVES='1',
-                                  TEST_SERVES_ERR='cc-harness-agents: remote route unavailable — Cloudflare Access rejected')
+        self.serve(status=403)
+        result = self.raw_wrapper('-c')
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout, '')
         self.assertIn('Cloudflare Access rejected', result.stderr)
@@ -232,27 +296,28 @@ print(json.dumps({'args':sys.argv[1:], 'agent':os.getenv('TEST_AGENT'), 'route':
 
     def test_unconfigured_route_on_resume_keeps_its_status(self):
         self.session()
-        result = self.raw_wrapper('--resume', A, TEST_SERVES='3')
+        result = self.raw_wrapper('--resume', A, CC_ROUTER_REMOTE_URL=None)
         self.assertEqual((result.returncode, result.stdout), (3, ''))
 
     def test_explicit_flag_never_falls_back(self):
         # No restore runs, so nothing asks the route first: exec gets the
         # explicit agent and fails there, naming the cause, if it cannot serve.
         self.session(models=('gpt-5.6-sol',))
-        data, _ = self.run_wrapper('--resume', A, '--sol', TEST_SERVES='4')
+        self.serve([m for m in SERVED if m != 'gpt-5.6-sol'])
+        data, _ = self.run_wrapper('--resume', A, '--sol')
         self.assertEqual(data['agent'], 'sol')
-        self.assertFalse((self.base / 'serves-asked').exists())
+        self.assertEqual(self.probes(), 1, 'only the routed exec probes')
 
     def test_local_resume_does_not_ask_the_remote_route(self):
         self.session()
-        data, _ = self.run_wrapper('--local', '-c', TEST_SERVES='4')
+        data, _ = self.run_wrapper('--local', '-c')
         self.assertEqual((data['agent'], data['route']), ('sol', 'local'))
-        self.assertFalse((self.base / 'serves-asked').exists())
+        self.assertEqual(self.probes(), 0)
 
     def test_native_resume_does_not_ask_the_route(self):
         self.session(models=('claude-opus-5',))
-        self.run_wrapper('--resume', A, TEST_SERVES='4')
-        self.assertFalse((self.base / 'serves-asked').exists())
+        self.run_wrapper('--resume', A)
+        self.assertEqual(self.probes(), 0)
 
     def test_unroutable_foreign_model_pins_the_default(self):
         # A foreign model nothing serves: CC would re-apply the stored id against
