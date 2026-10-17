@@ -1,0 +1,20 @@
+#!/bin/sh
+# The `claude` executable shim. Put the directory holding it ahead of the
+# native Claude Code launcher on PATH, and every caller — a terminal, herdr, a
+# process manager, anything that never sources share/claude.zsh — reaches
+# cc-router's flags, routing and resume restore.
+#
+# It only finds the cc-harness-agents next to its real location and becomes
+# it (`exec`), which in turn becomes the native launcher: no shim process
+# lingers, and the exit status and signals are Claude's own. It never looks
+# `claude` up by name — that would find this file again; launch execs the
+# configured native launcher (CC_ROUTER_CLAUDE, default ~/.local/bin/claude).
+self=$0
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case "$link" in
+    /*) self=$link ;;
+    *) self=$(dirname "$self")/$link ;;
+  esac
+done
+exec "$(cd "$(dirname "$self")/.." && pwd -P)/cc-harness-agents" launch -- "$@"

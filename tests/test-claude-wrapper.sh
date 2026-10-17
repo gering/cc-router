@@ -1,9 +1,10 @@
 #!/bin/bash
 #
-# Black-box tests for the interactive claude wrapper (share/claude.zsh): flag
-# parsing, conflicts, the foreign-model flags read from the helper's table,
-# passthrough, the herdr `script` skip and the resume-history hint. The resume
-# restore itself is tests/test-cc-harness-resume.py.
+# Black-box tests for the interactive claude wrapper (share/claude.zsh) and
+# the launch path behind it: flag parsing, conflicts, the foreign-model flags
+# read from the helper's table, passthrough, the herdr `script` skip, the
+# resume-history hint, and the executable shim. The resume restore itself is
+# tests/test-cc-harness-resume.py.
 # Usage: tests/test-claude-wrapper.sh <pkg-dir>
 # Env: ZSH_BIN (default: zsh on PATH) — the zsh binary under test
 
@@ -12,10 +13,10 @@ set -euo pipefail
 PKG="${1:?usage: $0 <pkg-dir>}"
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 HELPER="$PKG/bin/cc-harness-agents"
+SHIM="$PKG/bin/shim/claude"
 ZSH_BIN="${ZSH_BIN:-$(command -v zsh)}"
 CLAUDE_ZSH="$ROOT/share/claude.zsh"
 TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/test-claude-wrapper.XXXXXX")
-trap 'rm -rf -- "$TMP_ROOT"' EXIT
 
 # shellcheck source=tests/assert.sh disable=SC1091
 . "$(dirname "${BASH_SOURCE[0]}")/assert.sh"
@@ -50,32 +51,43 @@ assert text.count(needle) == 1
 path.write_text(text.replace(needle, 'local script_bin="${TEST_SCRIPT_BIN:-/usr/bin/script}"'))
 PY
 
-# Fake wrapper dependencies. The fake helper answers `names` from the REAL
-# binary — so the flags under test are the packaged table's, or a user table's
-# — and records every routing prefix before it execs its target, matching the
-# real helper's process behavior.
+# Routing is real: cc-harness-agents is tests/testdriver (the production code,
+# trusting only the test gateway's CA), and the test gateway plays the remote
+# route and the local port. Claude is fake and reports its argv and which
+# agent and route it was handed.
+exec 9> >("$PKG/bin/gateway" -root "$TMP_ROOT")
+# Preserve the exit status: a suite that dies mid-way must never report success.
+# shellcheck disable=SC2154 # assigned inside the trap itself
+trap 'status=$?; exec 9>&-; rm -rf -- "$TMP_ROOT"; exit "$status"' EXIT
+for _ in $(seq 100); do
+  [ -r "$TMP_ROOT/gateway.env" ] && break
+  sleep 0.05
+done
+# shellcheck source=/dev/null
+. "$TMP_ROOT/gateway.env"
 CASE_HOME="$TMP_ROOT/home"
 FAKE_BIN="$TMP_ROOT/bin"
 COMMON_PATH="$FAKE_BIN:/usr/bin:/bin"
-mkdir -p "$CASE_HOME" "$FAKE_BIN"
-cat > "$FAKE_BIN/cc-harness-agents" << FAKE_HELPER
-#!/bin/bash
-set -euo pipefail
-[ "\$1" != names ] || exec "$HELPER" names
-: > "\${WRAPPER_HELPER_LOG:?}"
-for arg in "\$@"; do printf '%s\n' "\$arg" >> "\$WRAPPER_HELPER_LOG"; done
-[ "\$1" = exec ] || exit 90
-shift
-[ "\${1:-}" != --local ] || shift
-shift
-[ "\${1:-}" != -- ] || shift
-exec -- "\$@"
-FAKE_HELPER
+mkdir -p "$CASE_HOME/.cli-proxy-api" "$CASE_HOME/.cache/cliproxy-auth" "$FAKE_BIN" "$TMP_ROOT/wrapper/gateway"
+ln -s "$PKG/bin/testdriver" "$FAKE_BIN/cc-harness-agents"
+# The catalog serves every model of the packaged table and the user-table row.
+catalog=$({ cut -f2-6 "$ROOT/share/models.tsv" | grep -v '^#' | tr '\t' '\n' && echo nova-1; } |
+  sort -u | sed 's/.*/{"id":"&"}/' | paste -sd, -)
+printf '{"data":[%s]}' "$catalog" > "$TMP_ROOT/wrapper/gateway/body"
+# The local route: a token, credentials and a fresh prepare-local window.
+printf 'local-token\n' > "$CASE_HOME/.cli-proxy-api/client.key"
+printf '{"access_token":"x","refresh_token":"r"}\n' > "$CASE_HOME/.cli-proxy-api/xai-test.json"
+printf '{"access_token":"c","refresh_token":"r"}\n' > "$CASE_HOME/.cli-proxy-api/codex-test.json"
+expires=$(($(date -u +%s) + 3600))
+expires=$(date -u -r "$expires" +%Y-%m-%dT%H:%M:%SZ 2> /dev/null || date -u -d "@$expires" +%Y-%m-%dT%H:%M:%SZ)
+printf '{"version":1,"prepared_at":"2026-01-01T00:00:00Z","expires_at":"%s","ssh_host":"h","remote_path":"/p","files":[{"name":"codex-test.json","sha256":"%064d"}]}\n' \
+  "$expires" 0 > "$CASE_HOME/.cache/cliproxy-auth/local-ready.json"
 cat > "$FAKE_BIN/claude" << 'FAKE_CLAUDE'
 #!/bin/bash
 set -euo pipefail
 : > "${WRAPPER_CLAUDE_LOG:?}"
 for arg in "$@"; do printf '%s\n' "$arg" >> "$WRAPPER_CLAUDE_LOG"; done
+[ -z "${CC_ROUTER_AGENT-}" ] || printf '%s %s\n' "$CC_ROUTER_AGENT" "$CLIPROXY_ROUTE" > "$WRAPPER_ROUTE_LOG"
 printf 'claude --resume "12345678-1234-1234-1234-123456789abc"\n'
 FAKE_CLAUDE
 cat > "$FAKE_BIN/script" << 'FAKE_SCRIPT'
@@ -90,6 +102,7 @@ set -euo pipefail
 [ "$1" = -q ]
 log="$2"
 shift 2
+: > "${TEST_SCRIPT_RAN:?}"
 tmp="${log}.command"
 if "$@" > "$tmp" 2>&1; then
   rc=0
@@ -101,38 +114,45 @@ fi
 rm -f -- "$tmp"
 exit "$rc"
 FAKE_TEST_SCRIPT
-chmod +x "$FAKE_BIN/cc-harness-agents" "$FAKE_BIN/claude" \
-  "$FAKE_BIN/script" "$FAKE_BIN/test-script"
-WRAPPER_HELPER_LOG="$TMP_ROOT/wrapper-helper"
+chmod +x "$FAKE_BIN/claude" "$FAKE_BIN/script" "$FAKE_BIN/test-script"
+WRAPPER_ROUTE_LOG="$TMP_ROOT/wrapper-route"
 WRAPPER_CLAUDE_LOG="$TMP_ROOT/wrapper-claude"
 FAKE_SCRIPT_RAN="$TMP_ROOT/fake-script-ran"
+TEST_SCRIPT_RAN="$TMP_ROOT/test-script-ran"
+ROUTE_ENV=(
+  HOME="$CASE_HOME" PATH="$COMMON_PATH" CC_ROUTER_CLAUDE="$FAKE_BIN/claude"
+  CC_ROUTER_REMOTE_URL="https://127.0.0.1:$GATEWAY_TRUSTED_PORT/c/wrapper"
+  CC_ROUTER_LOCAL_PORT="$GATEWAY_LIVE_PORT" CC_ROUTER_TEST_CA_FILE="$GATEWAY_CA"
+  CLIPROXY_PROFILE=TEST CLIPROXY_API_KEY_TEST=remote-api-secret
+  CLIPROXY_CF_ACCESS_TEST_CLIENT_ID=access-id-secret CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET=access-client-secret
+  WRAPPER_ROUTE_LOG="$WRAPPER_ROUTE_LOG" WRAPPER_CLAUDE_LOG="$WRAPPER_CLAUDE_LOG"
+  FAKE_SCRIPT_RAN="$FAKE_SCRIPT_RAN" TEST_SCRIPT_RAN="$TEST_SCRIPT_RAN"
+)
 
 run_zsh() {
-  : > "$WRAPPER_HELPER_LOG"
+  : > "$WRAPPER_ROUTE_LOG"
   : > "$WRAPPER_CLAUDE_LOG"
   # Expanded by the child zsh, not this Bash test harness.
   # shellcheck disable=SC2016
-  run_capture env -i HOME="$CASE_HOME" PATH="$COMMON_PATH" HERDR_ENV=1 \
-    WRAPPER_HELPER_LOG="$WRAPPER_HELPER_LOG" WRAPPER_CLAUDE_LOG="$WRAPPER_CLAUDE_LOG" \
-    FAKE_SCRIPT_RAN="$FAKE_SCRIPT_RAN" \
+  run_capture env -i "${ROUTE_ENV[@]}" HERDR_ENV=1 \
     "$ZSH_BIN" -f -c \
     'source "$1"; shift; claude "$@"' zsh "$ZSH_FUNCTIONS" "$@"
 }
 
-helper_prefix() { sed -n "1,$1p" "$WRAPPER_HELPER_LOG"; }
+routed() { cat "$WRAPPER_ROUTE_LOG"; }
 
 run_zsh --sol prompt
 assert_eq 0 "$RC" "zsh wrapper routes foreign models remotely by default"
-assert_eq $'exec\nsol\n--' "$(helper_prefix 3)" "zsh remote prefix omits --local"
+assert_eq 'sol remote' "$(routed)" "zsh remote route is the default"
 assert_contains "$(< "$WRAPPER_CLAUDE_LOG")" 'prompt' "zsh remote route preserves prompt argv"
 
 run_zsh --local --sol prompt
 assert_eq 0 "$RC" "zsh wrapper accepts --local with a foreign model"
-assert_eq $'exec\n--local\nsol\n--' "$(helper_prefix 4)" "zsh local prefix delegates route selection to helper"
+assert_eq 'sol local' "$(routed)" "--local selects the helper's local route"
 
 run_zsh --sol -- --local literal
 assert_eq 0 "$RC" "zsh wrapper treats --local after bare -- as passthrough"
-assert_eq $'exec\nsol\n--' "$(helper_prefix 3)" "passthrough --local does not select local routing"
+assert_eq 'sol remote' "$(routed)" "passthrough --local does not select local routing"
 assert_contains "$(< "$WRAPPER_CLAUDE_LOG")" '--local' "passthrough --local reaches Claude argv"
 
 run_zsh --local prompt
@@ -153,7 +173,7 @@ assert_contains "$ERR" 'conflicting model flags' "zsh wrapper reports foreign-mo
 while IFS= read -r agent; do
   run_zsh "--$agent" prompt
   assert_eq 0 "$RC" "zsh wrapper accepts --$agent"
-  assert_eq $'exec\n'"$agent"$'\n--' "$(helper_prefix 3)" "--$agent hands the row name straight to the helper"
+  assert_eq "$agent remote" "$(routed)" "--$agent routes through its own row"
   assert_not_contains "$(< "$WRAPPER_CLAUDE_LOG")" "--$agent" "--$agent is consumed, never leaked into Claude argv"
 done < <(env -i HOME="$CASE_HOME" "$HELPER" names)
 
@@ -166,33 +186,31 @@ printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
   > "$CASE_HOME/.config/cc-router/models.tsv"
 run_zsh --nova prompt
 assert_eq 0 "$RC" "a row added by a user table is a flag"
-assert_eq $'exec\nnova\n--' "$(helper_prefix 3)" "and routes to that row"
+assert_eq 'nova remote' "$(routed)" "and routes to that row"
 run_zsh --grok prompt
-assert_eq '' "$(< "$WRAPPER_HELPER_LOG")" "a row the table dropped never routes"
+assert_eq '' "$(routed)" "a row the table dropped never routes"
 assert_contains "$(< "$WRAPPER_CLAUDE_LOG")" '--grok' "its flag reaches Claude as an unknown option"
 rm -rf "$CASE_HOME/.config"
 
 # Unknown options and prompt text pass through untouched.
 run_zsh --verbose --print 'tell me about --sol'
 assert_eq 0 "$RC" "unknown options still launch"
-assert_eq '' "$(< "$WRAPPER_HELPER_LOG")" "an unknown option never routes"
+assert_eq '' "$(routed)" "an unknown option never routes"
 assert_eq $'--verbose\n--print\ntell me about --sol' "$(< "$WRAPPER_CLAUDE_LOG")" "unknown options and prompt text reach Claude verbatim"
 
-# A bare launch must not reach the routing helper at all — not even for names.
 run_zsh prompt
 assert_eq 0 "$RC" "a plain launch still succeeds"
-assert_eq '' "$(< "$WRAPPER_HELPER_LOG")" "a plain launch never reaches the routing helper"
+assert_eq '' "$(routed)" "a plain launch never routes"
+assert_eq prompt "$(< "$WRAPPER_CLAUDE_LOG")" "and reaches Claude unchanged"
 
-# Without the helper there is no table: a foreign flag is an unknown option to
-# Claude, never a silent launch on the default model.
+# Without the helper nothing can parse the flags: refuse, naming the fix,
+# rather than launching on the default model.
 # Expanded by the child zsh, not this Bash test harness.
 # shellcheck disable=SC2016
-run_capture env -i HOME="$CASE_HOME" PATH="$TMP_ROOT/claude-only:/usr/bin:/bin" HERDR_ENV=1 \
-  WRAPPER_CLAUDE_LOG="$WRAPPER_CLAUDE_LOG" \
-  "$ZSH_BIN" -f -c 'mkdir -p "$2" && ln -sf "$3" "$2/claude"; source "$1"; claude --sol prompt' \
-  zsh "$ZSH_FUNCTIONS" "$TMP_ROOT/claude-only" "$FAKE_BIN/claude"
-assert_eq 0 "$RC" "without the helper the launch still reaches Claude"
-assert_eq $'--sol\nprompt' "$(< "$WRAPPER_CLAUDE_LOG")" "and the foreign flag is passed on for Claude to reject"
+run_capture env -i HOME="$CASE_HOME" PATH=/usr/bin:/bin HERDR_ENV=1 \
+  "$ZSH_BIN" -f -c 'source "$1"; claude --sol prompt' zsh "$ZSH_FUNCTIONS"
+assert_eq 1 "$RC" "without the helper the wrapper refuses"
+assert_contains "$ERR" 'cc-harness-agents not on PATH' "and names what is missing"
 
 # Native-model shorthand. The point of these is the RESUME path: the restore only
 # stands down for an explicit model choice, so `-c --opus` has to reach Claude as
@@ -204,7 +222,7 @@ for native_case in fable opus sonnet haiku; do
   assert_contains "$(< "$WRAPPER_CLAUDE_LOG")" "--model
 $native_case" "--$native_case expands to a native --model"
   assert_not_contains "$(< "$WRAPPER_CLAUDE_LOG")" "--$native_case" "the shorthand itself never reaches Claude argv"
-  assert_eq '' "$(< "$WRAPPER_HELPER_LOG")" "--$native_case is native, so it never routes"
+  assert_eq '' "$(routed)" "--$native_case is native, so it never routes"
 done
 
 run_zsh --opus --sol
@@ -243,12 +261,10 @@ assert_eq $'--dangerously-skip-permissions\nprompt' "$(< "$WRAPPER_CLAUDE_LOG")"
 # The script wrapper path must preserve both --local and the foreign model in the
 # reconstructed resume-history command. The isolated function copy uses a
 # deterministic script(1) fake; the production source path is asserted separately.
-rm -f -- "$FAKE_SCRIPT_RAN"
+rm -f -- "$FAKE_SCRIPT_RAN" "$TEST_SCRIPT_RAN"
 # Expanded by the child zsh, not this Bash test harness.
 # shellcheck disable=SC2016
-run_capture env -i HOME="$CASE_HOME" PATH="$COMMON_PATH" \
-  WRAPPER_HELPER_LOG="$WRAPPER_HELPER_LOG" WRAPPER_CLAUDE_LOG="$WRAPPER_CLAUDE_LOG" \
-  FAKE_SCRIPT_RAN="$FAKE_SCRIPT_RAN" TEST_SCRIPT_BIN="$FAKE_BIN/test-script" \
+run_capture env -i "${ROUTE_ENV[@]}" TEST_SCRIPT_BIN="$FAKE_BIN/test-script" \
   "$ZSH_BIN" -f -c 'OSTYPE=darwin25; source "$1"; claude --yolo --local --sol; fc -l -1' zsh "$ZSH_FUNCTIONS"
 assert_eq 0 "$RC" "zsh wrapper script path succeeds"
 if grep -Fq 'local script_bin="/usr/bin/script"' "$CLAUDE_ZSH"; then
@@ -256,7 +272,12 @@ if grep -Fq 'local script_bin="/usr/bin/script"' "$CLAUDE_ZSH"; then
 else
   fail "zsh wrapper pins the production system script path"
 fi
-assert_contains "$(< "$WRAPPER_HELPER_LOG")" "$FAKE_BIN/test-script" "isolated resume test uses its deterministic script fake"
+if [ -e "$TEST_SCRIPT_RAN" ]; then
+  pass "isolated resume test uses its deterministic script fake"
+else
+  fail "isolated resume test uses its deterministic script fake"
+fi
+assert_eq 'sol local' "$(routed)" "the launch under script(1) is still routed"
 if [ ! -e "$FAKE_SCRIPT_RAN" ]; then
   pass "zsh wrapper never executes PATH script"
 else
@@ -264,13 +285,27 @@ else
 fi
 assert_contains "$OUT" 'claude --resume "12345678-1234-1234-1234-123456789abc" --yolo --local --sol' "resume history preserves yolo, local route, and model"
 
+# A route the restore brought back is not the caller's: the hint replays the
+# caller's flags only, so a local record is not pinned local forever.
+mkdir -p "$CASE_HOME/.cache/cc-router/sessions"
+chmod 700 "$CASE_HOME/.cache/cc-router" "$CASE_HOME/.cache/cc-router/sessions"
+printf '{"session_id":"12345678-1234-1234-1234-123456789abc","cwd":"/","agent":"sol","route":"local","model":"gpt-6-sol","updated_at":%s}' \
+  "$(date +%s)" > "$CASE_HOME/.cache/cc-router/sessions/12345678-1234-1234-1234-123456789abc.json"
+chmod 600 "$CASE_HOME/.cache/cc-router/sessions/12345678-1234-1234-1234-123456789abc.json"
+# Expanded by the child zsh, not this Bash test harness.
+# shellcheck disable=SC2016
+run_capture env -i "${ROUTE_ENV[@]}" TEST_SCRIPT_BIN="$FAKE_BIN/test-script" \
+  "$ZSH_BIN" -f -c 'OSTYPE=darwin25; source "$1"; claude --resume 12345678-1234-1234-1234-123456789abc; fc -l -1' zsh "$ZSH_FUNCTIONS"
+assert_eq 'sol local' "$(routed)" "a recorded local route is restored"
+assert_contains "$OUT" 'claude --resume "12345678-1234-1234-1234-123456789abc"' "and the hint is written"
+assert_not_contains "$OUT" '--local' "but never replays the restored route as the caller's"
+rm -rf "$CASE_HOME/.cache/cc-router"
+
 # Off macOS the BSD script(1) invocation would fail, so the launch goes direct.
 rm -f -- "$FAKE_SCRIPT_RAN" "$WRAPPER_CLAUDE_LOG"
 # Expanded by the child zsh, not this Bash test harness.
 # shellcheck disable=SC2016
-run_capture env -i HOME="$CASE_HOME" PATH="$COMMON_PATH" \
-  WRAPPER_HELPER_LOG="$WRAPPER_HELPER_LOG" WRAPPER_CLAUDE_LOG="$WRAPPER_CLAUDE_LOG" \
-  FAKE_SCRIPT_RAN="$FAKE_SCRIPT_RAN" TEST_SCRIPT_BIN="$FAKE_BIN/script" \
+run_capture env -i "${ROUTE_ENV[@]}" TEST_SCRIPT_BIN="$FAKE_BIN/script" \
   "$ZSH_BIN" -f -c 'OSTYPE=linux-gnu; source "$1"; claude prompt' zsh "$ZSH_FUNCTIONS"
 assert_eq 0 "$RC" "a launch off macOS succeeds"
 assert_eq prompt "$(< "$WRAPPER_CLAUDE_LOG")" "and reaches Claude directly"
@@ -279,6 +314,45 @@ if [ ! -e "$FAKE_SCRIPT_RAN" ]; then
 else
   fail "off macOS script(1) is never invoked"
 fi
+
+# The executable shim: the same launch path without any shell function, as
+# herdr's direct restores, process managers and other shells reach it. It
+# execs the PRODUCTION helper next to it, which does not trust the test
+# gateway's CA, so routing is shown on the local route.
+: > "$WRAPPER_ROUTE_LOG"
+run_capture env -i "${ROUTE_ENV[@]}" PATH="$PKG/bin/shim:$COMMON_PATH" /bin/sh -c 'claude --local --sol --yolo prompt'
+assert_eq 0 "$RC" "the shim launches without a shell function"
+assert_eq 'sol local' "$(routed)" "the shim routes a foreign-model flag"
+assert_eq $'--dangerously-skip-permissions\nprompt' "$(< "$WRAPPER_CLAUDE_LOG")" "the shim parses like the wrapper"
+
+# Every step execs: the process that ran the shim IS Claude, so nothing
+# lingers between a pane and its agent. Claude's own status comes back.
+cat > "$FAKE_BIN/claude-pid" << 'FAKE_PID'
+#!/bin/sh
+echo "$$" > "$WRAPPER_CLAUDE_LOG"
+exit 7
+FAKE_PID
+chmod +x "$FAKE_BIN/claude-pid"
+# Expanded by the child sh, not this Bash test harness.
+# shellcheck disable=SC2016
+run_capture env -i "${ROUTE_ENV[@]}" CC_ROUTER_CLAUDE="$FAKE_BIN/claude-pid" \
+  /bin/sh -c 'echo "$$"; exec "$1" --resume 12345678-1234-1234-1234-123456789abc' sh "$SHIM"
+assert_eq 7 "$RC" "the shim preserves Claude's exit status"
+assert_eq "$OUT" "$(< "$WRAPPER_CLAUDE_LOG")" "no shim or helper process lingers: Claude keeps the caller's pid"
+
+# Found through a link, the shim still finds its own helper.
+ln -s "$SHIM" "$TMP_ROOT/linked-claude"
+run_capture env -i "${ROUTE_ENV[@]}" "$TMP_ROOT/linked-claude" prompt
+assert_eq 0 "$RC" "a linked shim resolves its real location"
+
+# The native launcher is configured, never looked up by name: pointing it at
+# the shim itself is refused instead of recursing.
+run_capture env -i "${ROUTE_ENV[@]}" CC_ROUTER_CLAUDE="$TMP_ROOT/linked-claude" "$SHIM" prompt
+assert_eq 3 "$RC" "a launcher that is the shim itself is refused"
+assert_contains "$ERR" 'not Claude Code' "and the refusal says why"
+run_capture env -i "${ROUTE_ENV[@]}" CC_ROUTER_CLAUDE="$TMP_ROOT/absent" "$SHIM" prompt
+assert_eq 127 "$RC" "a missing native launcher is not found"
+assert_contains "$ERR" 'set CC_ROUTER_CLAUDE' "and the message names the setting"
 
 # The file must define its function in a bare shell, with no startup output
 # that could disturb an instant prompt.

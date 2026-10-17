@@ -63,10 +63,11 @@ Implemented (migration steps 1 and 1b):
 ```
 cmd/cc-harness-agents/    the binary: CLI entry point and production wiring
 cmd/cc-harness-resume/    the interim resume bridge (python3), copied to bin/
+cmd/claude-shim/          the `claude` executable shim (POSIX sh), copied to bin/shim/
 internal/agents/          the routing core — table, probes, selection, exec
 internal/testpki/         hermetic TLS fixtures (CA, loopback listeners)
 share/models.tsv          <- the table as data
-share/claude.zsh          the interactive wrapper, sourced from .zshrc
+share/claude.zsh          the interactive wrapper (terminal capture only), sourced from .zshrc
 docs/resume.md            the resume runbook: precedence, exit statuses, limits
 tests/                    run  +  the carried-over upstream suites
 Makefile                  build / check / fmt over the Go toolchain
@@ -78,7 +79,7 @@ bin/                      build output, generated, never committed
 Planned, still in the dotfiles:
 
 ```
-bin/          cc-router  claude(shim)  cliproxy-auth
+bin/          cc-router  cliproxy-auth
 statusline/   segment + provider quota helpers
 companion/    Go
 docs/         server-setup.md  troubleshooting.md
@@ -90,8 +91,9 @@ helpers calling *it* and holding no routing logic of their own. Today "the model
 table exists once" is discipline; that would make it structure.
 
 Today: one binary, `cc-harness-agents`, with the `list` / `exec` / `names` /
-`resolve-model` / `serves` subcommands; the wrapper reads its flags from
-`names`, so a row needs no wrapper edit. `list` and `exec` are work-system's external
+`resolve-model` / `serves` / `launch` / `record-session` subcommands. `launch`
+is what `claude` runs — the wrapper and the shim both hand it their argv — and
+it reads its flags from the table, so a row needs no wrapper edit. `list` and `exec` are work-system's external
 contract and do not move when the entry point does — a later `cc-router` gains
 the subcommands, it does not rename these.
 
@@ -218,7 +220,7 @@ Order — each step must leave the author working the same day:
 
 1. `cc-harness-agents` — the core; the most tests; everything else calls it.
    - **1b.** the `claude()` wrapper and the resume bridge — thin callers of 1;
-     the wrapper's flags come from its table (`names`).
+     the flags come from its table (`launch` reads it).
 2. statusline + quota — depend on 1, independently testable.
 3. `cliproxy-auth` — largest file, least entangled.
 4. companion — rename the module, decide the release path.

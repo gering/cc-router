@@ -203,32 +203,43 @@ last-one-wins behavior.
 
 ## Acceptance criteria
 
-- [ ] A native Claude session resumed by UUID keeps its last active native model.
-- [ ] A routed session resumed by UUID restores its proxy route and exact last
+- [x] A native Claude session resumed by UUID keeps its last active native model.
+- [x] A routed session resumed by UUID restores its proxy route and exact last
       active model.
-- [ ] A routed session switched with `/model` resumes on the switched model, not
+- [x] A routed session switched with `/model` resumes on the switched model, not
       the profile's original primary model.
-- [ ] A restore invoked by directly executing `claude --resume <uuid>` (no shell
+- [x] A restore invoked by directly executing `claude --resume <uuid>` (no shell
       function sourced — the shim path) succeeds. herdr itself reaches the
       wrapper through a fresh pane shell on the verified 0.8.2 implementation;
       a herdr restore must succeed on that path too, but it does not prove the
       shim.
-- [ ] `claude -c` restores the same session, profile, route and model for an exact
+- [x] `claude -c` restores the same session, profile, route and model for an exact
       working directory.
-- [ ] Two worktrees of the same repository cannot cross-select each other's
+- [x] Two worktrees of the same repository cannot cross-select each other's
       routing state.
-- [ ] Explicit model/profile arguments override cached state.
-- [ ] Missing or ambiguous sidecars do not trigger guessed foreign routing —
+- [x] Explicit model/profile arguments override cached state.
+- [x] Missing or ambiguous sidecars do not trigger guessed foreign routing —
       they launch the Anthropic default with a concise notice.
-- [ ] A cached `--local` route cannot bypass the existing local readiness gate.
-- [ ] Native `claude`, `claude --resume`, and `claude -c` behavior remains
+- [x] A cached `--local` route cannot bypass the existing local readiness gate.
+- [x] Native `claude`, `claude --resume`, and `claude -c` behavior remains
       unchanged when no routed state exists.
 - [ ] The statusline performs only local, bounded, atomic I/O.
-- [ ] The final installed process tree contains no lingering shim process.
+- [x] The final installed process tree contains no lingering shim process.
 - [ ] Installation puts the shim ahead of the native launcher without replacing
       or modifying the native Claude Code installation.
-- [ ] Documentation explains precedence, cache location, troubleshooting and
+- [x] Documentation explains precedence, cache location, troubleshooting and
       how to disable automatic restoration.
+
+Status (stage 2b): the ticked criteria are covered by `make check`. The
+statusline hook that calls `record-session` lives in dotfiles until the
+statusline moves; the shim is installed by putting `bin/shim` on `PATH`
+(documented, not automated: shell startup files are not install.sh's). The
+profile marker shipped as `CC_ROUTER_AGENT` — the code calls rows agents, and
+`CLIPROXY_PROFILE` already names the credential profile. "Missing or
+ambiguous sidecars" fall back to the transcript bridge, not straight to the
+Anthropic default: only a model nothing routes (or the gateway dropped) pins
+`--model default` with a notice; when nothing at all is known, nothing is
+changed, so a plain resume never outranks the user's own model.
 
 ## Test matrix
 

@@ -229,6 +229,11 @@ func (t *Table) Find(name string) (Row, bool) {
 	return Row{}, false
 }
 
+// has reports an agent by its exact bare name, as a `--<name>` flag spells it.
+func (t *Table) has(name string) bool {
+	return slices.ContainsFunc(t.Rows, func(r Row) bool { return r.Name == name })
+}
+
 // logins joins the table's distinct login flags for the setup hint, so a new
 // provider row never leaves the hint advertising only the old ones.
 func (t *Table) logins() string {
