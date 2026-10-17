@@ -69,6 +69,7 @@ func TestParseTableRejects(t *testing.T) {
 		"provider ctl":    "a\tm1\tm1\tm1\tm1\tm1\t1000\tc\t-c-login\tC\x01",
 		"duplicate name":  good + "\n" + strings.Replace(good, "m1\tm1\tm1", "m2\tm1\tm1", 1),
 		"duplicate var":   good + "\n" + "A\tm2\tm2\tm2\tm2\tm2\t1000\tc\t-c-login\tC",
+		"duplicate var .": "a-b\tm1\tm1\tm1\tm1\tm1\t1000\tc\t-c-login\tC\n" + "a.b\tm2\tm2\tm2\tm2\tm2\t1000\tc\t-c-login\tC",
 		"duplicate model": good + "\n" + "b\tm1\tm1\tm1\tm1\tm1\t1000\tc\t-c-login\tC",
 		"cred route":      good + "\n" + "b\tm2\tm2\tm2\tm2\tm2\t1000\tc\t-other\tC",
 		"no rows":         "# only a comment\n",
