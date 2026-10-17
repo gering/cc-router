@@ -284,6 +284,22 @@ else
 fi
 assert_contains "$OUT" 'claude --resume "12345678-1234-1234-1234-123456789abc" --yolo --local --sol' "resume history preserves yolo, local route, and model"
 
+# A route the restore brought back is not the caller's: the hint replays the
+# caller's flags only, so a local record is not pinned local forever.
+mkdir -p "$CASE_HOME/.cache/cc-router/sessions"
+chmod 700 "$CASE_HOME/.cache/cc-router" "$CASE_HOME/.cache/cc-router/sessions"
+printf '{"session_id":"12345678-1234-1234-1234-123456789abc","cwd":"/","agent":"sol","route":"local","model":"gpt-6-sol","updated_at":%s}' \
+  "$(date +%s)" > "$CASE_HOME/.cache/cc-router/sessions/12345678-1234-1234-1234-123456789abc.json"
+chmod 600 "$CASE_HOME/.cache/cc-router/sessions/12345678-1234-1234-1234-123456789abc.json"
+# Expanded by the child zsh, not this Bash test harness.
+# shellcheck disable=SC2016
+run_capture env -i "${ROUTE_ENV[@]}" TEST_SCRIPT_BIN="$FAKE_BIN/test-script" \
+  "$ZSH_BIN" -f -c 'OSTYPE=darwin25; source "$1"; claude --resume 12345678-1234-1234-1234-123456789abc; fc -l -1' zsh "$ZSH_FUNCTIONS"
+assert_eq 'sol local' "$(routed)" "a recorded local route is restored"
+assert_contains "$OUT" 'claude --resume "12345678-1234-1234-1234-123456789abc"' "and the hint is written"
+assert_not_contains "$OUT" '--local' "but never replays the restored route as the caller's"
+rm -rf "$CASE_HOME/.cache/cc-router"
+
 # Off macOS the BSD script(1) invocation would fail, so the launch goes direct.
 rm -f -- "$FAKE_SCRIPT_RAN" "$WRAPPER_CLAUDE_LOG"
 # Expanded by the child zsh, not this Bash test harness.

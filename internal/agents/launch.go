@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
@@ -16,8 +15,6 @@ import (
 // it, untouched otherwise. Parsing, conflicts and the resume restore live
 // here exactly once, so a caller that never sources a shell function gets the
 // same routing as a terminal.
-//
-// Exact arg match only: prompt text is never rewritten.
 
 // Value-taking Claude options, split by how many tokens each consumes.
 // Derived from `claude --help` (`<v>` required, `<v...>` variadic, `[v]`
@@ -52,22 +49,36 @@ func setOf(items ...string) map[string]bool {
 }
 
 // launchPlan is a parsed command line: Claude's argv with this layer's own
-// flags consumed or expanded, plus what they selected.
+// flags consumed or expanded, plus what they selected. Matching is by exact
+// argument only: prompt text is never rewritten.
 type launchPlan struct {
-	args        []string
-	yolo        bool
-	local       bool
-	agent       string // foreign agent, from a flag or a restore
-	agentFlag   string // the flag the CALLER gave, for conflicts and replay
-	nativeModel bool   // --model or a native shorthand
-	nativeFlag  string
-	// The resume selector: "continue", "picker", or --resume's value; with the
-	// indices of its option and value in args (-1 when absent).
+	args  []string
+	yolo  bool
+	local bool // the caller's --local
+	// A recorded local route: routed like --local, never replayed as one.
+	restoredLocal bool
+	agent         string // foreign agent, from a flag or a restore
+	agentFlag     string // the flag the CALLER gave, for conflicts and replay
+	nativeModel   bool   // --model or a native shorthand
+	nativeFlag    string
+	// The resume selector — its kind, --resume's value, and the indices of
+	// its option and value in args (-1 when absent). A kind, not a sentinel
+	// string: `--resume continue` names a session, it is not -c.
+	resumeKind    selectorKind
 	resume        string
 	resumeAt      int
 	resumeValueAt int
 	resumes       int
 }
+
+type selectorKind int
+
+const (
+	noSelector selectorKind = iota
+	continueSelector
+	pickerSelector
+	valueSelector
+)
 
 // conflict is a refused command line; launch reports it as `claude: …`.
 type conflict string
@@ -97,7 +108,7 @@ func parseLaunch(argv []string, isAgent func(string) bool) (*launchPlan, error) 
 		if (optvalPending || variadicPending) && !strings.HasPrefix(arg, "-") {
 			p.args = append(p.args, arg)
 			if optvalIsResume {
-				p.resume = arg
+				p.resumeKind, p.resume = valueSelector, arg
 				p.resumeValueAt = len(p.args) - 1
 				optvalIsResume = false
 			}
@@ -108,14 +119,14 @@ func parseLaunch(argv []string, isAgent func(string) bool) (*launchPlan, error) 
 		switch {
 		case arg == "-c" || arg == "--continue":
 			p.args = append(p.args, arg)
-			p.markResume("continue")
+			p.markResume(continueSelector, "")
 		case arg == "-r" || arg == "--resume":
 			p.args = append(p.args, arg)
-			p.markResume("picker")
+			p.markResume(pickerSelector, "")
 			optvalPending, optvalIsResume = true, true
 		case strings.HasPrefix(arg, "--resume="):
 			p.args = append(p.args, arg)
-			p.markResume(strings.TrimPrefix(arg, "--resume="))
+			p.markResume(valueSelector, strings.TrimPrefix(arg, "--resume="))
 		case arg == "--model" || strings.HasPrefix(arg, "--model="):
 			if p.nativeFlag != "" {
 				return nil, conflict(p.nativeFlag + " conflicts with --model — pick one")
@@ -170,8 +181,8 @@ func parseLaunch(argv []string, isAgent func(string) bool) (*launchPlan, error) 
 	return p, nil
 }
 
-func (p *launchPlan) markResume(selector string) {
-	p.resume = selector
+func (p *launchPlan) markResume(kind selectorKind, value string) {
+	p.resumeKind, p.resume = kind, value
 	p.resumeAt = len(p.args) - 1
 	p.resumeValueAt = -1
 	p.resumes++
@@ -241,7 +252,7 @@ func (a *App) launch(home string, args []string) error {
 	// restore would re-route it behind the caller's back. An explicit flag
 	// still re-routes, like any explicit choice.
 	_, routed := a.Env.Lookup(keyAgent)
-	if p.resume != "" && p.agent == "" && !p.nativeModel && !routed && a.Env.Get("CC_ROUTER_RESTORE") != "0" {
+	if p.resumeKind != noSelector && p.agent == "" && !p.nativeModel && !routed && a.Env.Get("CC_ROUTER_RESTORE") != "0" {
 		// Refuse a second selector rather than rewriting the last one's slot:
 		// a trailing bare `--resume` would open the picker and land the user on
 		// a different conversation than the routing was resolved from. Only
@@ -249,7 +260,7 @@ func (a *App) launch(home string, args []string) error {
 		if p.resumes > 1 {
 			return a.refuse(conflict("more than one resume selector (-c / --resume) — pick one"))
 		}
-		if err := a.restore(home, p); err != nil {
+		if err := a.restore(home, p, loadTable); err != nil {
 			return err
 		}
 	}
@@ -273,7 +284,7 @@ func (a *App) launch(home string, args []string) error {
 	if p.agent == "" {
 		return a.replace(argv, a.Env)
 	}
-	return a.routed(home, p.agent, p.local, argv)
+	return a.routed(home, p.agent, p.local || p.restoredLocal, argv)
 }
 
 func (a *App) refuse(err error) error {
@@ -308,14 +319,17 @@ func (a *App) nativeClaude(home string) (string, error) {
 // caller choices never reach here; this decides only what the session itself
 // recorded, and on doubt changes nothing or falls back to the Anthropic
 // default — it never guesses a foreign route.
-func (a *App) restore(home string, p *launchPlan) error {
-	r := a.resolveResume(p.resume)
+func (a *App) restore(home string, p *launchPlan, table func() *Table) error {
+	r := a.resolveResume(home, p, table)
 	if r.status == resumeResolved && r.agent != "native" {
+		// An explicit --local outranks the recorded route; a recorded local
+		// route stays local and meets its own readiness gate in exec.
+		p.restoredLocal = r.route == "local"
 		// The table maps the model, but the gateway may have dropped it since.
 		// That verdict alone falls back to the Anthropic default; every other
 		// failure is the route's and stays an error naming its layer. The
 		// local route has no catalog to ask.
-		if !p.local {
+		if !p.local && !p.restoredLocal {
 			if err := a.servesModel(home, r.model); err != nil {
 				var ee *exitError
 				if !errors.As(err, &ee) || ee.code != exitNotServed {
@@ -350,8 +364,6 @@ func (a *App) restore(home string, p *launchPlan) error {
 	return nil
 }
 
-var sessionIDRe = regexp.MustCompile(`^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$`)
-
 // Resume verdicts, numbered as cc-harness-resume's exit statuses.
 const (
 	resumeResolved   = 0
@@ -360,20 +372,68 @@ const (
 )
 
 type resumeRoute struct {
-	status           int
-	id, agent, model string
+	status                  int
+	id, agent, model, route string
 }
 
-// resolveResume answers which session a selector means and what it ran on.
-func (a *App) resolveResume(selector string) resumeRoute {
-	if selector == "picker" {
+// resolveResume answers which session a selector means and what it ran on:
+// the session's sidecar first, Claude's own transcript (cc-harness-resume)
+// for a session that has none.
+func (a *App) resolveResume(home string, p *launchPlan, table func() *Table) resumeRoute {
+	look := sessionLookup{dir: sessionDir(a.Env, home), stderr: a.Stderr, now: a.Now()}
+	var rec sessionRecord
+	found := false
+	switch {
+	case p.resumeKind == pickerSelector:
 		// The conversation is unknown until after the pick.
 		return resumeRoute{status: resumeUnknown}
+	case p.resumeKind == continueSelector:
+		if cwd, err := os.Getwd(); err == nil {
+			if real, err := filepath.EvalSymlinks(cwd); err == nil {
+				cwd = real
+			}
+			rec, found = look.latestIn(cwd)
+		}
+		// A native record is no answer for -c: Claude's own pick may be a newer
+		// transcript the cache never saw (a `claude -p` has no statusline), and
+		// the transcript reader below asks Claude's files directly.
+		found = found && !rec.native()
+		if !found {
+			return a.transcriptResume("continue")
+		}
+	case sessionIDRe.MatchString(p.resume):
+		if rec, found = look.byID(p.resume); !found {
+			return a.transcriptResume(p.resume)
+		}
+	default:
+		// A search term: the conversation is unknown until Claude matches it.
+		fmt.Fprintln(a.Stderr, "claude: search selector; model restore skipped (use --resume <UUID> or an explicit model flag)")
+		return resumeRoute{status: resumeUnknown}
 	}
-	return a.transcriptResume(selector)
+	if rec.native() {
+		return resumeRoute{status: resumeResolved, id: rec.SessionID, agent: "native", model: rec.Model}
+	}
+	r := resumeRoute{status: resumeResolved, id: rec.SessionID, model: rec.Model, route: rec.Route}
+	// The recorded agent first; a session recorded before the marker existed,
+	// or whose row was renamed since, goes through the table's own mapping.
+	if t := table(); t.has(rec.Agent) {
+		r.agent = rec.Agent
+	} else if agent, model, err := t.ResolveModel(rec.Model); err == nil {
+		r.agent, r.model = agent, model
+	} else {
+		fmt.Fprintf(a.Stderr, "claude: %s\n", err)
+		r.status = resumeUnroutable
+	}
+	return r
 }
 
-// transcriptResume asks the resume bridge, which reads the session's last
+// native: a session no exec ever routed, on a Claude model. Claude restores
+// those itself.
+func (r sessionRecord) native() bool {
+	return r.Agent == "" && r.Route == "" && strings.HasPrefix(r.Model, "claude-")
+}
+
+// transcriptResume asks the interim bridge, which reads the session's last
 // model out of Claude's own transcript. Its exit status is the verdict; its
 // stderr is the user's and passes straight through. Missing, or an answer
 // that does not hold its shape, is "cannot tell".

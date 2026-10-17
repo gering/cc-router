@@ -3,9 +3,10 @@
 // agent table, the route probes and the routing environment; callers choose
 // an agent and, optionally, the route.
 //
-// The CLI (list, exec, names, resolve-model, serves, launch) is an external
-// contract — see README.md. Remote is the default route; --local selects the machine-local
-// gateway and is never an automatic fallback.
+// The CLI (list, exec, names, resolve-model, serves, launch, record-session)
+// is an external contract — see README.md. Remote is the default route;
+// --local selects the machine-local gateway and is never an automatic
+// fallback.
 package agents
 
 import (
@@ -24,11 +25,13 @@ const usageText = `usage: cc-harness-agents list [--local] [--header|--no-header
        cc-harness-agents resolve-model <model-id>
        cc-harness-agents serves <model-id>
        cc-harness-agents launch [--replay-to <file>] -- <claude args…>
+       cc-harness-agents record-session < statusline.json
 `
 
 // App is one invocation with every side effect injectable.
 type App struct {
 	Env         *Env
+	Stdin       io.Reader
 	Stdout      io.Writer
 	Stderr      io.Writer
 	StdoutIsTTY bool
@@ -89,6 +92,8 @@ func (a *App) run(args []string) error {
 		return a.serves(home, args[1:])
 	case "launch":
 		return a.launch(home, args[1:])
+	case "record-session":
+		return a.recordSession(home, args[1:], a.Stdin)
 	case "-h", "--help", "help":
 		io.WriteString(a.Stdout, usageText)
 		return nil

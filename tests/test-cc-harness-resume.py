@@ -156,7 +156,7 @@ print(json.dumps({'args':sys.argv[1:], 'agent':os.getenv('CC_ROUTER_AGENT'), 'ro
 
 
 class ResumeTests(Fixture):
-    """The transcript bridge decides."""
+    """Sessions without a sidecar: the transcript bridge decides."""
 
     def test_uuid_restores_model_and_route(self):
         self.session()
@@ -498,6 +498,214 @@ class ResumeTests(Fixture):
         p = self.session()
         with p.open('a') as f: f.write('{"interrupted":')
         self.assertEqual(resolver.resolve(A,self.base,self.config)[1],'sol')
+
+
+class SidecarTests(Fixture):
+    """Sessions the statusline recorded: the sidecar decides, before any
+    transcript is read."""
+
+    def setUp(self):
+        super().setUp()
+        self.sessions = self.base / '.cache/cc-router/sessions'
+
+    def record(self, uuid=A, model='grok-4.6', cwd=None, **env):
+        """Feed one statusline render to record-session, as the statusline does."""
+        payload = {'session_id': uuid, 'cwd': str(cwd or self.cwd), 'transcript_path': '/t/x.jsonl',
+                   'workspace': {'current_dir': str(cwd or self.cwd), 'project_dir': str(cwd or self.cwd)},
+                   'model': {'id': model, 'display_name': 'shown, never stored'}, 'cost': {'ignored': True}}
+        return subprocess.run([str(PKG / 'bin/cc-harness-agents'), 'record-session'], input=json.dumps(payload),
+                              capture_output=True, text=True, env=self.env(**env))
+
+    def sidecar(self, uuid=A, model='grok-4.6', agent='grok', route='remote', cwd=None, age=60, mode=0o600, **extra):
+        """Write a record directly, for fields record-session sets itself;
+        last active `age` seconds ago."""
+        self.sessions.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.sessions.chmod(0o700)
+        rec = {'session_id': uuid, 'cwd': str(cwd or self.cwd), 'model': model,
+               'updated_at': int(time.time()) - age, **extra}
+        rec.update({k: v for k, v in (('agent', agent), ('route', route)) if v})
+        path = self.sessions / f'{uuid}.json'
+        path.write_text(json.dumps(rec))
+        path.chmod(mode)
+        return path
+
+    def test_record_is_private_atomic_and_secret_free(self):
+        result = self.record(CC_ROUTER_AGENT='grok', CLIPROXY_ROUTE='remote')
+        self.assertEqual((result.returncode, result.stderr), (0, ''))
+        path = self.sessions / f'{A}.json'
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.sessions.stat().st_mode & 0o777, 0o700)
+        rec = json.loads(path.read_text())
+        self.assertEqual({k: rec[k] for k in ('session_id', 'cwd', 'agent', 'route', 'model')},
+                         {'session_id': A, 'cwd': str(self.cwd), 'agent': 'grok', 'route': 'remote', 'model': 'grok-4.6'})
+        text = path.read_text()
+        for secret in ('remote-api-secret', 'access-id-secret', 'access-client-secret', 'shown, never stored'):
+            self.assertNotIn(secret, text)
+        self.assertEqual([p.name for p in self.sessions.iterdir()], [f'{A}.json'], 'no temp file left behind')
+
+    def test_record_refuses_what_a_resume_could_not_use(self):
+        for model in ('grok-4.6/../../v1', ''):
+            self.assertNotEqual(self.record(model=model).returncode, 0, model)
+        self.assertNotEqual(self.record(uuid='not-a-uuid').returncode, 0)
+        self.assertNotEqual(self.record(CLIPROXY_ROUTE='sideways').returncode, 0)
+        self.assertFalse(list(self.sessions.glob('*.json')))
+
+    def test_record_refuses_a_shared_cache_dir(self):
+        self.sessions.mkdir(parents=True, mode=0o755)
+        self.sessions.chmod(0o755)
+        result = self.record()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('accessible to other users', result.stderr)
+
+    def test_routed_record_restores_route_and_exact_model(self):
+        # No transcript at all: the record alone carries the restore.
+        self.record(CC_ROUTER_AGENT='grok', CLIPROXY_ROUTE='remote')
+        data, warning = self.run_wrapper('--resume', A)
+        self.assertEqual((data['agent'], data['route']), ('grok', 'remote'))
+        self.assertEqual(data['pins'], {'CC_HARNESS_MODEL_GROK': 'grok-4.6'})
+        self.assertEqual(data['args'], ['--model', 'grok-4.6', '--resume', A])
+        self.assertIn('restoring grok-4.6 via cc-harness:grok', warning)
+
+    def test_model_switch_resumes_on_the_switched_model(self):
+        # A Sol session that /model-switched to Terra: the record's agent keeps
+        # the Sol route, its model is Terra — not the row's primary, and not
+        # what an older transcript line says.
+        self.session(models=('gpt-6-sol',))
+        self.record(model='gpt-5.6-terra', CC_ROUTER_AGENT='sol', CLIPROXY_ROUTE='remote')
+        data, _ = self.run_wrapper('--resume', A)
+        self.assertEqual((data['agent'], data['model']), ('sol', 'gpt-5.6-terra'))
+        self.assertEqual(data['pins'], {'CC_HARNESS_MODEL_SOL': 'gpt-5.6-terra'})
+
+    def test_record_without_marker_maps_its_model(self):
+        # A session started before exec exported the marker: the route is still
+        # known, the agent comes from the table's own mapping.
+        self.record(model='grok-4.6', CLIPROXY_ROUTE='remote')
+        data, _ = self.run_wrapper('--resume', A)
+        self.assertEqual(data['agent'], 'grok')
+
+    def test_renamed_agent_maps_its_model(self):
+        self.sidecar(agent='gone', model='gpt-6-sol')
+        data, _ = self.run_wrapper('--resume', A)
+        self.assertEqual(data['agent'], 'sol')
+
+    def test_unmappable_record_falls_back_to_anthropic(self):
+        self.sidecar(agent=None, model='kimi-k3')
+        data, warning = self.run_wrapper('-c')
+        self.assertIsNone(data['agent'])
+        self.assertEqual(data['args'], ['--model', 'default', '--resume=' + A])
+        self.assertIn('no routing profile for model kimi-k3', warning)
+        self.assertIn('normal Anthropic', warning)
+
+    def test_cached_local_route_meets_the_local_gate(self):
+        self.sidecar(agent='sol', model='gpt-6-sol', route='local')
+        data, _ = self.run_wrapper('--resume', A)
+        self.assertEqual((data['agent'], data['route']), ('sol', 'local'))
+        self.assertEqual(self.probes(), 0, 'a local restore never asks the remote route')
+        (self.base / '.cache/cliproxy-auth/local-ready.json').unlink()
+        result = self.raw_wrapper('--resume', A)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, '', 'nothing launches past a closed gate')
+
+    def test_native_record_is_left_to_claude(self):
+        # The transcript's older foreign line is irrelevant: the record says the
+        # session last ran natively, and Claude restores that itself.
+        self.session(models=('gpt-6-sol',))
+        self.sidecar(agent=None, route=None, model='claude-opus-5')
+        data, warning = self.run_wrapper('--resume', A)
+        self.assertEqual((data['agent'], data['args'], warning), (None, ['--resume', A], ''))
+        self.assertEqual(self.probes(), 0)
+
+    def test_continue_takes_the_newest_record_of_this_exact_directory(self):
+        self.sidecar(A, model='gpt-6-sol', agent='sol', age=200)
+        self.sidecar(B, model='grok-4.6', agent='grok', age=100)
+        data, _ = self.run_wrapper('-c')
+        self.assertEqual(data['agent'], 'grok')
+        self.assertEqual(data['args'], ['--model', 'grok-4.6', '--resume=' + B])
+
+    def test_worktrees_and_parents_never_cross_select(self):
+        sibling = self.base / 'project space-worktree'
+        sibling.mkdir()
+        self.sidecar(A, cwd=sibling, age=20)
+        self.sidecar(B, cwd=self.base, age=10)
+        data, _ = self.run_wrapper('-c')
+        self.assertEqual((data['agent'], data['args']), (None, ['-c']))
+
+    def test_tied_records_are_no_answer(self):
+        now = int(time.time())
+        self.sidecar(A, agent='sol', model='gpt-6-sol', updated_at=now)
+        self.sidecar(B, agent='grok', model='grok-4.6', updated_at=now)
+        data, warning = self.run_wrapper('-c')
+        self.assertEqual((data['agent'], data['args']), (None, ['-c']))
+        self.assertIn('same time', warning)
+
+    def test_continue_skips_a_record_whose_transcript_is_gone(self):
+        # Pinning -c to it could only end in "No conversation found".
+        self.sidecar(A, agent='sol', model='gpt-6-sol', age=10, transcript_path=str(self.base / 'gone.jsonl'))
+        self.sidecar(B, agent='grok', model='grok-4.6', age=20)
+        data, _ = self.run_wrapper('-c')
+        self.assertEqual((data['agent'], data['args'][-1]), ('grok', '--resume=' + B))
+
+    def test_expired_records_are_not_restored(self):
+        self.sidecar(agent='sol', model='gpt-6-sol', age=31 * 24 * 3600)
+        data, _ = self.run_wrapper('--resume', A)
+        self.assertEqual((data['agent'], data['args']), (None, ['--resume', A]))
+
+    def test_an_upper_case_id_is_found_either_way(self):
+        self.record(uuid=A.upper(), CC_ROUTER_AGENT='grok', CLIPROXY_ROUTE='remote')
+        self.assertTrue((self.sessions / f'{A}.json').exists())
+        data, _ = self.run_wrapper('--resume', A)
+        self.assertEqual(data['agent'], 'grok')
+
+    def test_a_search_term_named_continue_is_not_continue(self):
+        self.sidecar(agent='sol', model='gpt-6-sol')
+        data, warning = self.run_wrapper('--resume', 'continue')
+        self.assertEqual((data['agent'], data['args']), (None, ['--resume', 'continue']))
+        self.assertIn('search selector', warning)
+
+    def test_a_record_build_id_restores_canonically(self):
+        # Through the table's mapping the record's id is canonicalised, like the
+        # transcript path's.
+        self.sidecar(agent=None, model='grok-4.6-build')
+        data, _ = self.run_wrapper('--resume', A)
+        self.assertEqual((data['agent'], data['model']), ('grok', 'grok-4.6'))
+
+    def test_explicit_choices_override_the_record(self):
+        self.sidecar(agent='sol', model='gpt-6-sol')
+        data, _ = self.run_wrapper('--resume', A, '--grok')
+        self.assertEqual((data['agent'], data['pins']), ('grok', {}))
+        data, _ = self.run_wrapper('--resume', A, '--model', 'opus')
+        self.assertEqual((data['agent'], data['args']), (None, ['--resume', A, '--model', 'opus']))
+
+    def test_unsafe_or_malformed_records_are_ignored(self):
+        # Ignored with a notice, never acted on: with no transcript either, the
+        # resume goes to Claude unchanged.
+        cases = {
+            'shared': dict(mode=0o644),
+            'unknown field': dict(extra_field='x'),
+            'bad model': dict(model='grok-4.6/../x'),
+            'wrong name': dict(session_id=B),
+        }
+        for label, fields in cases.items():
+            with self.subTest(label):
+                self.sidecar(**fields)
+                data, warning = self.run_wrapper('--resume', A)
+                self.assertEqual((data['agent'], data['args']), (None, ['--resume', A]))
+                self.assertIn('ignoring session record', warning)
+        (self.sessions / f'{A}.json').write_text('{torn')
+        _, warning = self.run_wrapper('--resume', A)
+        self.assertIn('ignoring session record', warning)
+
+    def test_restore_can_be_switched_off(self):
+        self.sidecar(agent='sol', model='gpt-6-sol')
+        data, _ = self.run_wrapper('--resume', A, CC_ROUTER_RESTORE='0')
+        self.assertEqual((data['agent'], data['args']), (None, ['--resume', A]))
+
+    def test_a_routed_session_is_never_rerouted_by_a_restore(self):
+        # `cc-harness-agents exec grok -- claude -c` already chose the route; the
+        # record of some other session here must not override it.
+        self.sidecar(agent='sol', model='gpt-6-sol')
+        data, _ = self.run_wrapper('-c', CC_ROUTER_AGENT='grok', CLIPROXY_ROUTE='remote')
+        self.assertEqual((data['agent'], data['args'], data['pins']), ('grok', ['-c'], {}))
 
 
 class HelperFailureTests(unittest.TestCase):
