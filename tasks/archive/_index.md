@@ -5,3 +5,4 @@
 - 2026-10-11 · PR #9 (merged @ f2d5177) · codex-minor-discovery — Codex minor discovery
 - 2026-10-16 · PR #26 (merged) · enable-astra-profile — Enable Astra through the existing CC routing path
 - 2026-10-16 · closed manually (no merged PR) · coordination-update-2026-09-05 — Manager handoff: current routing and resume direction
+- 2026-10-17 · PR #11 (merged @ a662d23) · migrate-claude-wrapper — Migrate the claude wrapper
