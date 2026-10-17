@@ -5,17 +5,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Repository state
 
 The routing core `cc-harness-agents` is implemented here in Go
-(`cmd/cc-harness-agents`, `internal/agents`, table in `share/models.tsv`), with
-the interactive wrapper (`share/claude.zsh`) and the interim resume bridge
-(`cmd/cc-harness-resume`, python3, copied to `bin/` by `make build`). The
-statusline, `cliproxy-auth` and companion still live in the private
-`gering/dotfiles` repository and move later.
+(`cmd/cc-harness-agents`, `internal/agents`, table in `share/models.tsv`).
+Its `launch` owns `claude`'s command line, resume restore included; the wrapper
+(`share/claude.zsh`) and the POSIX shim (`cmd/claude-shim`) only call it. The
+interim resume bridge (`cmd/cc-harness-resume`, python3) covers sessions
+without a record. The statusline, `cliproxy-auth` and companion still live in
+the private `gering/dotfiles` repository and move later.
 
 - **`make check` is the gate** (gofmt/vet/staticcheck, shellcheck/shfmt,
-  `zsh -n`, `go test -race`, `tests/run` — routing, wrapper and resume suites,
-  needing zsh and python3 — then `make build`); `make fmt` formats. The contract suite
-  in `tests/` came across from dotfiles — keep its assertions language-neutral
-  and update `tests/migration-coverage.md` when it changes.
+  `zsh -n`, `go test -race`, `tests/run` — routing, wrapper/shim and resume
+  suites, needing zsh and python3 — then `make build`); `make fmt` formats.
+  The contract suite in `tests/` came across from dotfiles — keep its
+  assertions language-neutral and update `tests/migration-coverage.md` when it
+  changes.
 - `tasks/architecture.md` holds the decisions: layout, language, distribution,
   quality gate, migration order. Read it before proposing structural changes.
   `tasks/mission.md` is the extraction checklist,
@@ -54,11 +56,11 @@ Five pieces, deliberately layered so routing logic exists exactly once:
 - **`cc-harness-agents`** — the core. Owns the model table, the route probes and
   the environment recipe (base URL, auth, headers, tier defaults, subagent
   model, context ceiling), then execs `claude`. Everything else calls it.
-- **`claude()` wrapper / executable shim** — interactive layer only: flag
-  parsing, conflict checks, resume hints. Must never duplicate the model table:
-  its foreign-model flags come from `cc-harness-agents names`.
-  The planned shim (see the restore task) sits ahead of the native launcher on
-  `PATH` so non-shell callers like herdr also get routing.
+- **`claude()` wrapper / executable shim** — thin callers of
+  `cc-harness-agents launch`, which parses the flags (read from the table) and
+  restores resumed sessions. The wrapper adds only the terminal capture and
+  resume hint; the shim sits ahead of the native launcher on `PATH` so
+  non-shell callers get the same routing.
 - **`cliproxy-auth`** — tunnels to the private admin API; runs provider OAuth
   logins on the host that keeps the tokens.
 - **quota helpers** — feed the statusline from the read-only usage API.

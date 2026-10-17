@@ -18,6 +18,7 @@ func Main(rootCAs *x509.CertPool) int {
 	}
 	app := &App{
 		Env:            NewEnv(os.Environ()),
+		Stdin:          os.Stdin,
 		Stdout:         os.Stdout,
 		Stderr:         os.Stderr,
 		StdoutIsTTY:    term.IsTerminal(int(os.Stdout.Fd())),

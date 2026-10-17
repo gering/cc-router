@@ -1,26 +1,36 @@
 #!/usr/bin/env python3
-"""Offline regression tests: real wrapper/resolver, fake routed executor and CLI.
+"""Offline regression tests: real wrapper, launcher and resolver; fake Claude.
 
 usage: CC_ROUTER_PKG=<pkg-dir> python3 tests/test-cc-harness-resume.py [unittest args]
        tests/run   # builds the package layout and runs every suite
 
 The package layout is bin/cc-harness-agents next to bin/cc-harness-resume, as
-`make build` leaves them: the resolver asks its sibling binary for the route.
+`make build` leaves them: launch asks its sibling resolver for a session's
+model, and the resolver its sibling binary for the route. Routing is real: the
+launcher is tests/testdriver (the production code, trusting only the test
+gateway's CA), and the test gateway plays the remote route and the local port.
 """
+import atexit
 import importlib.machinery
 import importlib.util
 import json
 import os
 from pathlib import Path
+import re
+import shlex
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 ZSH_BIN = os.environ.get('ZSH_BIN') or shutil.which('zsh')  # same knob as test-claude-wrapper.sh
 ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = ROOT / 'share/claude.zsh'
-RESOLVER = Path(os.environ['CC_ROUTER_PKG']) / 'bin/cc-harness-resume'
+PKG = Path(os.environ['CC_ROUTER_PKG'])
+RESOLVER = PKG / 'bin/cc-harness-resume'
+DRIVER = PKG / 'bin/testdriver'
+SHIM = PKG / 'bin/shim/claude'
 # The resolver has no .py suffix, so import it by location. load_module() would
 # do too, but it is gone in Python 3.12.
 _spec = importlib.util.spec_from_file_location(
@@ -29,9 +39,34 @@ resolver = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(resolver)
 A = '11111111-1111-4111-8111-111111111111'
 B = '22222222-2222-4222-8222-222222222222'
+# Every model the packaged table names, plus the user-table and retained ids
+# the cases restore: the default catalog serves them all.
+SERVED = sorted({m for line in (ROOT / 'share/models.tsv').read_text().splitlines()
+                 if line and not line.startswith('#') for m in line.split('\t')[1:6]}
+                | {'nova-1', 'gpt-5.6-sol', 'gpt-5.6-luna'})
 
 
-class ResumeTests(unittest.TestCase):
+def start_gateway():
+    """The suite's one test gateway, for the life of the process."""
+    root = Path(tempfile.mkdtemp(prefix='test-cc-harness-resume.'))
+    proc = subprocess.Popen([str(PKG / 'bin/gateway'), '-root', str(root)], stdin=subprocess.PIPE)
+    atexit.register(lambda: (proc.stdin.close(), proc.wait(), shutil.rmtree(root, ignore_errors=True)))
+    env_file = root / 'gateway.env'
+    for _ in range(100):
+        if env_file.exists():
+            break
+        time.sleep(0.05)
+    values = dict(line.split('=', 1) for line in env_file.read_text().splitlines())
+    return root, {k: shlex.split(v)[0] for k, v in values.items()}
+
+
+GATEWAY_ROOT, GATEWAY = start_gateway()
+
+
+class Fixture(unittest.TestCase):
+    """A project dir, Claude's config dir, the package's launcher and a case
+    on the test gateway."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -44,28 +79,41 @@ class ResumeTests(unittest.TestCase):
         self.bin = self.base / 'bin'
         self.bin.mkdir()
         (self.bin / 'cc-harness-resume').symlink_to(RESOLVER)
-        # The routed executor is fake; `names` is the real table's. `serves`
-        # answers TEST_SERVES (default: served) and leaves a trace, so a test
-        # can tell whether the wrapper asked at all.
-        self.exe('cc-harness-agents', f'''#!/bin/bash
-case "$1" in
-  names) exec {RESOLVER.with_name('cc-harness-agents')} names ;;
-  serves)
-    : > "{self.base}/serves-asked"
-    [ -z "$TEST_SERVES_ERR" ] || echo "$TEST_SERVES_ERR" >&2
-    exit "${{TEST_SERVES:-0}}" ;;
-esac
-shift
-route=remote
-if [ "$1" = --local ]; then route=local; shift; fi
-agent="$1"; shift; shift
-export TEST_AGENT="$agent" TEST_ROUTE="$route"
-exec "$@"
-''')
+        (self.bin / 'cc-harness-agents').symlink_to(DRIVER)
+        # Claude is fake: it reports its argv and what routing it was handed.
         self.exe('claude', '''#!/usr/bin/env python3
 import os,json,sys
-print(json.dumps({'args':sys.argv[1:], 'agent':os.getenv('TEST_AGENT'), 'route':os.getenv('TEST_ROUTE'), 'pins':{k:v for k,v in os.environ.items() if k.startswith('CC_HARNESS_MODEL_')}}))
+print(json.dumps({'args':sys.argv[1:], 'agent':os.getenv('CC_ROUTER_AGENT'), 'route':os.getenv('CLIPROXY_ROUTE'), 'model':os.getenv('ANTHROPIC_MODEL'), 'pid':os.getpid(), 'pins':{k:v for k,v in os.environ.items() if k.startswith('CC_HARNESS_MODEL_')}}))
 ''')
+        self.case = re.sub(r'[^A-Za-z0-9._]', '_', self.id())
+        self.gateway = GATEWAY_ROOT / self.case / 'gateway'
+        self.gateway.mkdir(parents=True)
+        self.serve(SERVED)
+        # The local route: a token, codex credentials and a fresh
+        # prepare-local window, with the gateway's accepting port as the proxy.
+        proxy = self.base / '.cli-proxy-api'
+        proxy.mkdir()
+        (proxy / 'client.key').write_text('local-token\n')
+        (proxy / 'codex-test.json').write_text('{"access_token":"c","refresh_token":"r"}\n')
+        marker = self.base / '.cache/cliproxy-auth/local-ready.json'
+        marker.parent.mkdir(parents=True)
+        marker.write_text(json.dumps({
+            'version': 1, 'prepared_at': '2026-01-01T00:00:00Z',
+            'expires_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + 3600)),
+            'ssh_host': 'gateway-host', 'remote_path': '/srv/cliproxyapi/auths',
+            'files': [{'name': 'codex-test.json', 'sha256': '0' * 64}]}) + '\n')
+
+    def serve(self, models=None, status=None):
+        """What the remote route answers this case: a catalog, or a status."""
+        if models is not None:
+            (self.gateway / 'body').write_text(json.dumps({'data': [{'id': m} for m in models]}))
+        if status is not None:
+            (self.gateway / 'status').write_text(str(status))
+
+    def probes(self):
+        """Catalog requests the remote route has seen this case."""
+        count = self.gateway / 'count'
+        return int(count.read_text()) if count.exists() else 0
 
     def exe(self, name, body):
         p = self.bin / name
@@ -78,12 +126,22 @@ print(json.dumps({'args':sys.argv[1:], 'agent':os.getenv('TEST_AGENT'), 'route':
         p.write_text(''.join(json.dumps(r)+'\n' for r in [*records, *extra]))
         return p
 
-    def raw_wrapper(self, *args, **extra):
+    def env(self, **extra):
         env = dict(os.environ, PATH=f'{self.bin}:'+os.environ['PATH'], CLAUDE_CONFIG_DIR=str(self.config),
-                   HERDR_ENV='1', HOME=str(self.base), **extra)
+                   HERDR_ENV='1', HOME=str(self.base), PWD=str(self.cwd), CC_ROUTER_CLAUDE=str(self.bin / 'claude'),
+                   CC_ROUTER_REMOTE_URL=f"https://127.0.0.1:{GATEWAY['GATEWAY_TRUSTED_PORT']}/c/{self.case}",
+                   CC_ROUTER_LOCAL_PORT=GATEWAY['GATEWAY_LIVE_PORT'], CC_ROUTER_TEST_CA_FILE=GATEWAY['GATEWAY_CA'],
+                   CLIPROXY_PROFILE='TEST', CLIPROXY_API_KEY_TEST='remote-api-secret',
+                   CLIPROXY_CF_ACCESS_TEST_CLIENT_ID='access-id-secret',
+                   CLIPROXY_CF_ACCESS_TEST_CLIENT_SECRET='access-client-secret')
         for key in list(env):
-            if key.startswith('CC_HARNESS_MODEL_'): del env[key]
-        return subprocess.run([ZSH_BIN,'-f','-c','source "$1"; shift; claude "$@"','zsh',str(WRAPPER),*args], cwd=self.cwd, env=env, capture_output=True,text=True)
+            if key.startswith(('CC_HARNESS_MODEL_', 'CLIPROXY_ROUTE', 'CC_ROUTER_AGENT', 'XDG_CACHE_HOME')): del env[key]
+        env.update(extra)
+        return {k: v for k, v in env.items() if v is not None}
+
+    def raw_wrapper(self, *args, **extra):
+        return subprocess.run([ZSH_BIN,'-f','-c','source "$1"; shift; claude "$@"','zsh',str(WRAPPER),*args],
+                              cwd=self.cwd, env=self.env(**extra), capture_output=True, text=True)
 
     def run_resolver(self, selector, cwd=None):
         cwd = cwd or self.cwd
@@ -96,13 +154,19 @@ print(json.dumps({'args':sys.argv[1:], 'agent':os.getenv('TEST_AGENT'), 'route':
         self.assertEqual(result.returncode,0,result.stderr)
         return json.loads(result.stdout), result.stderr
 
+
+
+class ResumeTests(Fixture):
+    """Sessions without a sidecar: the transcript bridge decides."""
+
     def test_uuid_restores_model_and_route(self):
         self.session()
         data, _ = self.run_wrapper('--resume', A, 'hello world')
         self.assertEqual(data['agent'],'sol')
         self.assertEqual(data['pins'],{'CC_HARNESS_MODEL_SOL':'gpt-6-sol'})
         self.assertEqual(data['args'],['--model','gpt-6-sol','--resume',A,'hello world'])
-        self.assertTrue((self.base / 'serves-asked').exists(), 'a remote restore asks the route first')
+        # Once by `serves` before the restore, once by the routed exec.
+        self.assertEqual(self.probes(), 2, 'a remote restore asks the route first')
 
     def test_dotted_agent_name_restores_through_a_shell_identifier(self):
         # A user-table name may carry '.', which no shell identifier can: the
@@ -206,8 +270,8 @@ print(json.dumps({'args':sys.argv[1:], 'agent':os.getenv('TEST_AGENT'), 'route':
 
     def test_unserved_recorded_model_falls_back_to_anthropic(self):
         self.session(models=('gpt-5.6-sol',))
-        data, warning = self.run_wrapper('--resume', A, TEST_SERVES='4',
-                                         TEST_SERVES_ERR='cc-harness-agents: the remote route no longer serves gpt-5.6-sol')
+        self.serve([m for m in SERVED if m != 'gpt-5.6-sol'])
+        data, warning = self.run_wrapper('--resume', A)
         self.assertIsNone(data['agent'])
         self.assertEqual(data['pins'], {})
         self.assertEqual(data['args'], ['--model', 'default', '--resume', A])
@@ -218,13 +282,14 @@ print(json.dumps({'args':sys.argv[1:], 'agent':os.getenv('TEST_AGENT'), 'route':
         # The decision was made for the resolved transcript, so the fallback
         # pins it too: a bare -c would let Claude pick another one.
         self.session(models=('gpt-5.6-sol',))
-        data, _ = self.run_wrapper('-c', TEST_SERVES='4')
+        self.serve([m for m in SERVED if m != 'gpt-5.6-sol'])
+        data, _ = self.run_wrapper('-c')
         self.assertEqual(data['args'], ['--model', 'default', '--resume=' + A])
 
     def test_route_failure_on_resume_fails_closed(self):
         self.session()
-        result = self.raw_wrapper('-c', TEST_SERVES='1',
-                                  TEST_SERVES_ERR='cc-harness-agents: remote route unavailable — Cloudflare Access rejected')
+        self.serve(status=403)
+        result = self.raw_wrapper('-c')
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout, '')
         self.assertIn('Cloudflare Access rejected', result.stderr)
@@ -232,27 +297,28 @@ print(json.dumps({'args':sys.argv[1:], 'agent':os.getenv('TEST_AGENT'), 'route':
 
     def test_unconfigured_route_on_resume_keeps_its_status(self):
         self.session()
-        result = self.raw_wrapper('--resume', A, TEST_SERVES='3')
+        result = self.raw_wrapper('--resume', A, CC_ROUTER_REMOTE_URL=None)
         self.assertEqual((result.returncode, result.stdout), (3, ''))
 
     def test_explicit_flag_never_falls_back(self):
         # No restore runs, so nothing asks the route first: exec gets the
         # explicit agent and fails there, naming the cause, if it cannot serve.
         self.session(models=('gpt-5.6-sol',))
-        data, _ = self.run_wrapper('--resume', A, '--sol', TEST_SERVES='4')
+        self.serve([m for m in SERVED if m != 'gpt-5.6-sol'])
+        data, _ = self.run_wrapper('--resume', A, '--sol')
         self.assertEqual(data['agent'], 'sol')
-        self.assertFalse((self.base / 'serves-asked').exists())
+        self.assertEqual(self.probes(), 1, 'only the routed exec probes')
 
     def test_local_resume_does_not_ask_the_remote_route(self):
         self.session()
-        data, _ = self.run_wrapper('--local', '-c', TEST_SERVES='4')
+        data, _ = self.run_wrapper('--local', '-c')
         self.assertEqual((data['agent'], data['route']), ('sol', 'local'))
-        self.assertFalse((self.base / 'serves-asked').exists())
+        self.assertEqual(self.probes(), 0)
 
     def test_native_resume_does_not_ask_the_route(self):
         self.session(models=('claude-opus-5',))
-        self.run_wrapper('--resume', A, TEST_SERVES='4')
-        self.assertFalse((self.base / 'serves-asked').exists())
+        self.run_wrapper('--resume', A)
+        self.assertEqual(self.probes(), 0)
 
     def test_unroutable_foreign_model_pins_the_default(self):
         # A foreign model nothing serves: CC would re-apply the stored id against
@@ -433,6 +499,225 @@ print(json.dumps({'args':sys.argv[1:], 'agent':os.getenv('TEST_AGENT'), 'route':
         p = self.session()
         with p.open('a') as f: f.write('{"interrupted":')
         self.assertEqual(resolver.resolve(A,self.base,self.config)[1],'sol')
+
+
+class SidecarTests(Fixture):
+    """Sessions the statusline recorded: the sidecar decides, before any
+    transcript is read."""
+
+    def setUp(self):
+        super().setUp()
+        self.sessions = self.base / '.cache/cc-router/sessions'
+
+    def record(self, uuid=A, model='grok-4.6', cwd=None, **env):
+        """Feed one statusline render to record-session, as the statusline does."""
+        payload = {'session_id': uuid, 'cwd': str(cwd or self.cwd), 'transcript_path': '/t/x.jsonl',
+                   'workspace': {'current_dir': str(cwd or self.cwd), 'project_dir': str(cwd or self.cwd)},
+                   'model': {'id': model, 'display_name': 'shown, never stored'}, 'cost': {'ignored': True}}
+        return subprocess.run([str(PKG / 'bin/cc-harness-agents'), 'record-session'], input=json.dumps(payload),
+                              capture_output=True, text=True, env=self.env(**env))
+
+    def sidecar(self, uuid=A, model='grok-4.6', agent='grok', route='remote', cwd=None, age=60, mode=0o600, **extra):
+        """Write a record directly, for fields record-session sets itself;
+        last active `age` seconds ago."""
+        self.sessions.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.sessions.chmod(0o700)
+        rec = {'session_id': uuid, 'cwd': str(cwd or self.cwd), 'model': model,
+               'updated_at': int(time.time()) - age, **extra}
+        rec.update({k: v for k, v in (('agent', agent), ('route', route)) if v})
+        path = self.sessions / f'{uuid}.json'
+        path.write_text(json.dumps(rec))
+        path.chmod(mode)
+        return path
+
+    def test_record_is_private_atomic_and_secret_free(self):
+        result = self.record(CC_ROUTER_AGENT='grok', CLIPROXY_ROUTE='remote')
+        self.assertEqual((result.returncode, result.stderr), (0, ''))
+        path = self.sessions / f'{A}.json'
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.sessions.stat().st_mode & 0o777, 0o700)
+        rec = json.loads(path.read_text())
+        self.assertEqual({k: rec[k] for k in ('session_id', 'cwd', 'agent', 'route', 'model')},
+                         {'session_id': A, 'cwd': str(self.cwd), 'agent': 'grok', 'route': 'remote', 'model': 'grok-4.6'})
+        text = path.read_text()
+        for secret in ('remote-api-secret', 'access-id-secret', 'access-client-secret', 'shown, never stored'):
+            self.assertNotIn(secret, text)
+        self.assertEqual([p.name for p in self.sessions.iterdir()], [f'{A}.json'], 'no temp file left behind')
+
+    def test_record_refuses_what_a_resume_could_not_use(self):
+        for model in ('grok-4.6/../../v1', ''):
+            self.assertNotEqual(self.record(model=model).returncode, 0, model)
+        self.assertNotEqual(self.record(uuid='not-a-uuid').returncode, 0)
+        self.assertNotEqual(self.record(CLIPROXY_ROUTE='sideways').returncode, 0)
+        self.assertFalse(list(self.sessions.glob('*.json')))
+
+    def test_record_refuses_a_shared_cache_dir(self):
+        self.sessions.mkdir(parents=True, mode=0o755)
+        self.sessions.chmod(0o755)
+        result = self.record()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('accessible to other users', result.stderr)
+
+    def test_routed_record_restores_route_and_exact_model(self):
+        # No transcript at all: the record alone carries the restore.
+        self.record(CC_ROUTER_AGENT='grok', CLIPROXY_ROUTE='remote')
+        data, warning = self.run_wrapper('--resume', A)
+        self.assertEqual((data['agent'], data['route']), ('grok', 'remote'))
+        self.assertEqual(data['pins'], {'CC_HARNESS_MODEL_GROK': 'grok-4.6'})
+        self.assertEqual(data['args'], ['--model', 'grok-4.6', '--resume', A])
+        self.assertIn('restoring grok-4.6 via cc-harness:grok', warning)
+
+    def test_model_switch_resumes_on_the_switched_model(self):
+        # A Sol session that /model-switched to Terra: the record's agent keeps
+        # the Sol route, its model is Terra — not the row's primary, and not
+        # what an older transcript line says.
+        self.session(models=('gpt-6-sol',))
+        self.record(model='gpt-5.6-terra', CC_ROUTER_AGENT='sol', CLIPROXY_ROUTE='remote')
+        data, _ = self.run_wrapper('--resume', A)
+        self.assertEqual((data['agent'], data['model']), ('sol', 'gpt-5.6-terra'))
+        self.assertEqual(data['pins'], {'CC_HARNESS_MODEL_SOL': 'gpt-5.6-terra'})
+
+    def test_record_without_marker_maps_its_model(self):
+        # A session started before exec exported the marker: the route is still
+        # known, the agent comes from the table's own mapping.
+        self.record(model='grok-4.6', CLIPROXY_ROUTE='remote')
+        data, _ = self.run_wrapper('--resume', A)
+        self.assertEqual(data['agent'], 'grok')
+
+    def test_renamed_agent_maps_its_model(self):
+        self.sidecar(agent='gone', model='gpt-6-sol')
+        data, _ = self.run_wrapper('--resume', A)
+        self.assertEqual(data['agent'], 'sol')
+
+    def test_unmappable_record_falls_back_to_anthropic(self):
+        self.sidecar(agent=None, model='kimi-k3')
+        data, warning = self.run_wrapper('-c')
+        self.assertIsNone(data['agent'])
+        self.assertEqual(data['args'], ['--model', 'default', '--resume=' + A])
+        self.assertIn('no routing profile for model kimi-k3', warning)
+        self.assertIn('normal Anthropic', warning)
+
+    def test_cached_local_route_meets_the_local_gate(self):
+        self.sidecar(agent='sol', model='gpt-6-sol', route='local')
+        data, _ = self.run_wrapper('--resume', A)
+        self.assertEqual((data['agent'], data['route']), ('sol', 'local'))
+        self.assertEqual(self.probes(), 0, 'a local restore never asks the remote route')
+        (self.base / '.cache/cliproxy-auth/local-ready.json').unlink()
+        result = self.raw_wrapper('--resume', A)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, '', 'nothing launches past a closed gate')
+
+    def test_native_record_is_left_to_claude(self):
+        # The transcript's older foreign line is irrelevant: the record says the
+        # session last ran natively, and Claude restores that itself.
+        self.session(models=('gpt-6-sol',))
+        self.sidecar(agent=None, route=None, model='claude-opus-5')
+        data, warning = self.run_wrapper('--resume', A)
+        self.assertEqual((data['agent'], data['args'], warning), (None, ['--resume', A], ''))
+        self.assertEqual(self.probes(), 0)
+
+    def test_continue_takes_the_newest_record_of_this_exact_directory(self):
+        self.sidecar(A, model='gpt-6-sol', agent='sol', age=200)
+        self.sidecar(B, model='grok-4.6', agent='grok', age=100)
+        data, _ = self.run_wrapper('-c')
+        self.assertEqual(data['agent'], 'grok')
+        self.assertEqual(data['args'], ['--model', 'grok-4.6', '--resume=' + B])
+
+    def test_worktrees_and_parents_never_cross_select(self):
+        sibling = self.base / 'project space-worktree'
+        sibling.mkdir()
+        self.sidecar(A, cwd=sibling, age=20)
+        self.sidecar(B, cwd=self.base, age=10)
+        data, _ = self.run_wrapper('-c')
+        self.assertEqual((data['agent'], data['args']), (None, ['-c']))
+
+    def test_tied_records_are_no_answer(self):
+        now = int(time.time())
+        self.sidecar(A, agent='sol', model='gpt-6-sol', updated_at=now)
+        self.sidecar(B, agent='grok', model='grok-4.6', updated_at=now)
+        data, warning = self.run_wrapper('-c')
+        self.assertEqual((data['agent'], data['args']), (None, ['-c']))
+        self.assertIn('same time', warning)
+
+    def test_continue_skips_a_record_whose_transcript_is_gone(self):
+        # Pinning -c to it could only end in "No conversation found".
+        self.sidecar(A, agent='sol', model='gpt-6-sol', age=10, transcript_path=str(self.base / 'gone.jsonl'))
+        self.sidecar(B, agent='grok', model='grok-4.6', age=20)
+        data, _ = self.run_wrapper('-c')
+        self.assertEqual((data['agent'], data['args'][-1]), ('grok', '--resume=' + B))
+
+    def test_expired_records_are_not_restored(self):
+        self.sidecar(agent='sol', model='gpt-6-sol', age=31 * 24 * 3600)
+        data, _ = self.run_wrapper('--resume', A)
+        self.assertEqual((data['agent'], data['args']), (None, ['--resume', A]))
+
+    def test_an_upper_case_id_is_found_either_way(self):
+        self.record(uuid=A.upper(), CC_ROUTER_AGENT='grok', CLIPROXY_ROUTE='remote')
+        self.assertTrue((self.sessions / f'{A}.json').exists())
+        data, _ = self.run_wrapper('--resume', A)
+        self.assertEqual(data['agent'], 'grok')
+
+    def test_a_search_term_named_continue_is_not_continue(self):
+        self.sidecar(agent='sol', model='gpt-6-sol')
+        data, warning = self.run_wrapper('--resume', 'continue')
+        self.assertEqual((data['agent'], data['args']), (None, ['--resume', 'continue']))
+        self.assertIn('search selector', warning)
+
+    def test_a_record_build_id_restores_canonically(self):
+        # Through the table's mapping the record's id is canonicalised, like the
+        # transcript path's.
+        self.sidecar(agent=None, model='grok-4.6-build')
+        data, _ = self.run_wrapper('--resume', A)
+        self.assertEqual((data['agent'], data['model']), ('grok', 'grok-4.6'))
+
+    def test_explicit_choices_override_the_record(self):
+        self.sidecar(agent='sol', model='gpt-6-sol')
+        data, _ = self.run_wrapper('--resume', A, '--grok')
+        self.assertEqual((data['agent'], data['pins']), ('grok', {}))
+        data, _ = self.run_wrapper('--resume', A, '--model', 'opus')
+        self.assertEqual((data['agent'], data['args']), (None, ['--resume', A, '--model', 'opus']))
+
+    def test_unsafe_or_malformed_records_are_ignored(self):
+        # Ignored with a notice, never acted on: with no transcript either, the
+        # resume goes to Claude unchanged.
+        cases = {
+            'shared': dict(mode=0o644),
+            'unknown field': dict(extra_field='x'),
+            'bad model': dict(model='grok-4.6/../x'),
+            'wrong name': dict(session_id=B),
+        }
+        for label, fields in cases.items():
+            with self.subTest(label):
+                self.sidecar(**fields)
+                data, warning = self.run_wrapper('--resume', A)
+                self.assertEqual((data['agent'], data['args']), (None, ['--resume', A]))
+                self.assertIn('ignoring session record', warning)
+        (self.sessions / f'{A}.json').write_text('{torn')
+        _, warning = self.run_wrapper('--resume', A)
+        self.assertIn('ignoring session record', warning)
+
+    def test_restore_can_be_switched_off(self):
+        self.sidecar(agent='sol', model='gpt-6-sol')
+        data, _ = self.run_wrapper('--resume', A, CC_ROUTER_RESTORE='0')
+        self.assertEqual((data['agent'], data['args']), (None, ['--resume', A]))
+
+    def test_a_routed_session_is_never_rerouted_by_a_restore(self):
+        # `cc-harness-agents exec grok -- claude -c` already chose the route; the
+        # record of some other session here must not override it.
+        self.sidecar(agent='sol', model='gpt-6-sol')
+        data, _ = self.run_wrapper('-c', CC_ROUTER_AGENT='grok', CLIPROXY_ROUTE='remote')
+        self.assertEqual((data['agent'], data['args'], data['pins']), ('grok', ['-c'], {}))
+
+    def test_direct_executable_restores_through_the_shim(self):
+        # No shell function anywhere: the shim alone. It execs the production
+        # helper, which does not trust the test CA, so the record is local.
+        self.sidecar(agent='sol', model='gpt-6-sol', route='local')
+        result = subprocess.run([str(SHIM), '--resume', A], cwd=self.cwd, env=self.env(),
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads(result.stdout)
+        self.assertEqual((data['agent'], data['route'], data['model']), ('sol', 'local', 'gpt-6-sol'))
+        self.assertEqual(data['args'], ['--model', 'gpt-6-sol', '--resume', A])
 
 
 class HelperFailureTests(unittest.TestCase):

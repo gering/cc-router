@@ -7,7 +7,8 @@
 #   CC_ROUTER_BIN_DIR=DIR ./install.sh
 #
 # Idempotent. An existing file or a link pointing elsewhere is never
-# overwritten. Shell startup files are not touched.
+# overwritten. Shell startup files are not touched. bin/shim/ is a directory,
+# so the loop below skips it.
 set -eu
 
 ROOT=$(cd "$(dirname "$0")" && pwd -P)
@@ -41,4 +42,12 @@ case ":$PATH:" in
   *":$DEST:"*) ;;
   *) echo "note: $DEST is not on PATH" >&2 ;;
 esac
+# The shim is not linked: its directory itself goes ahead of the native
+# launcher on PATH, and that is the user's shell configuration, not ours.
+if [ -x "$ROOT/bin/shim/claude" ]; then
+  case ":$PATH:" in
+    *":$ROOT/bin/shim:"*) ;;
+    *) echo "note: to route callers that never source share/claude.zsh, put $ROOT/bin/shim ahead of Claude Code on PATH" >&2 ;;
+  esac
+fi
 exit "$status"

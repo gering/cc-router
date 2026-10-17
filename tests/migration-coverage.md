@@ -7,7 +7,7 @@ the deltas are summarized below).
 
 Counts are **assertion call sites**, not executed assertions: loops and
 `assert_secret_safe` (three checks) expand at run time. The routing suite here
-runs 473 assertions (`tests/run`), the wrapper suite 82.
+runs 475 assertions (`tests/run`), the wrapper suite 97.
 
 | Disposition | Sites |
 |---|---|
@@ -94,6 +94,21 @@ the gateway dropped resumes on the Anthropic default with a notice, a route
 failure stays an error with its layer and status, and neither an explicit flag
 nor `--local` nor a native session asks the remote route. `names` and `serves`
 have their own cases in the routing suite.
+
+**Parsing moved below the wrapper** (cc-router, restore-routed-sessions): the
+flag parsing, conflicts and the resume restore left `share/claude.zsh` for
+`cc-harness-agents launch`, which the wrapper and the new executable shim both
+call. The moved sites keep their assertions; what changed is the harness. The
+wrapper and resume suites no longer fake the helper: they run the real
+`launch` (as `tests/testdriver`) against the test gateway and read the routing
+a fake Claude received (`CC_ROUTER_AGENT`, `CLIPROXY_ROUTE`) where they used to
+read the helper's argv. Two cases changed meaning: a plain launch now passes
+through the helper (it must — the shim has no other path), so "never reaches
+the helper" became "never routes and reaches Claude unchanged"; and a missing
+helper is now refused instead of launching unparsed. Added: the shim (direct
+launch, no lingering process, exit status, link resolution, recursion and
+missing-launcher refusals), the `CC_ROUTER_AGENT` marker in both routes, and
+the session-record cases in `tests/test-cc-harness-resume.py` (`SidecarTests`).
 
 | Upstream line | Assertion | Here |
 |---|---|---|
