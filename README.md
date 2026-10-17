@@ -14,7 +14,8 @@ Your subscriptions stay on a host you control. The laptop holds no OAuth
 credentials, only a revocable per-machine key.
 
 > **Status: early.** The routing core, `cc-harness-agents` (Go), the
-> interactive `claude` wrapper and the resume bridge are here. The statusline
+> interactive `claude` wrapper, the executable shim and session resume are
+> here. The statusline
 > and the login tooling still live in the author's dotfiles and move next — see
 > [`tasks/mission.md`](tasks/mission.md) and [`tasks/architecture.md`](tasks/architecture.md).
 
@@ -32,10 +33,23 @@ For the `claude --grok` flags, source the wrapper from your `~/.zshrc`:
 source /path/to/cc-router/share/claude.zsh
 ```
 
+For callers that never source it — a process manager, another shell,
+anything that runs `claude` directly — put the shim's directory **ahead of** the
+native Claude Code launcher on `PATH`:
+
+```sh
+export PATH="/path/to/cc-router/bin/shim:$PATH"
+```
+
+The shim finds the native launcher at `CC_ROUTER_CLAUDE` (default
+`~/.local/bin/claude`, the native installer's), never on `PATH`. Nothing of
+the Claude Code installation is replaced or modified.
+
 The links point into the checkout: `git pull && make build` updates in place,
 and `share/models.tsv` is read on every invocation. Uninstall by removing the
-links and the `source` line. The binary has no runtime dependencies; the resume
-bridge (`cc-harness-resume`) needs `python3`, the wrapper `zsh`.
+links, the `PATH` entry and the `source` line. The binary has no runtime
+dependencies; the resume bridge (`cc-harness-resume`) needs `python3`, the
+wrapper `zsh`.
 
 ## Usage
 
@@ -45,6 +59,8 @@ cc-harness-agents exec [--local] <agent> [--] <command…>
 cc-harness-agents names
 cc-harness-agents resolve-model <model-id>
 cc-harness-agents serves <model-id>
+cc-harness-agents launch [--replay-to <file>] -- <claude args…>
+cc-harness-agents record-session < statusline.json
 ```
 
 `exec sol -- claude` probes the route, sets the routing environment and
@@ -55,25 +71,34 @@ so the boundary is who may run it. `list` prints one row per agent — raw TSV
 to a terminal. `names` prints the agent names, one per line, without network
 access — the wrapper's `--<name>` flags. `resolve-model` maps a recorded model
 id back to its agent with no network access. `serves` asks the remote route
-whether it still offers a model id. Exit codes: `1` unavailable, `2` usage or
-unknown agent, `3` not configured, `4` (`serves` only) the route answered
-without the model, `126` the target is not executable, `127` no such target;
-after a successful `exec` the status is the target's.
+whether it still offers a model id. `launch` is what `claude` runs (the wrapper
+and the shim both call it): it parses the flags below, restores a resumed
+session's routing and execs the native launcher. `record-session` reads Claude
+Code's statusline JSON on stdin and writes the session's record.
+
+Exit codes: `1` unavailable, `2` usage or unknown agent, `3` not configured,
+`4` (`serves` only) the route answered without the model, `126` the target is
+not executable, `127` no such target; after a successful `exec` or `launch`
+the status is the target's. `launch` answers a command line it refuses
+(conflicting model flags, `--local` without an agent, two resume selectors)
+with `1` and a `claude:` message, as the wrapper always did.
 
 These are external contracts: work-system discovers the helper on `PATH` and
-parses `list`; the wrapper calls `names` and `serves`, the resume bridge
-`resolve-model`.
+parses `list`; the wrapper and the shim call `launch`, the statusline
+`record-session`, the resume bridge `resolve-model`.
 
-**The wrapper.** `claude --<agent>` routes through `exec` for every row of the
-effective table; `--local` picks the local route, `--yolo` is
+**The `claude` flags.** `claude --<agent>` routes through `exec` for every
+row of the effective table; `--local` picks the local route, `--yolo` is
 `--dangerously-skip-permissions`, and `--fable/--opus/--sonnet/--haiku` are
 native `--model` shorthands. Conflicting model flags are an error, never last
-one wins. `claude -c` and `claude --resume <id>` restore the agent and exact
-model the session last answered on (read from its transcript by
-`cc-harness-resume`). When that model maps to no agent, or the gateway no
-longer serves it, the session resumes on the Anthropic default with a notice; a
-route that fails (`403`, `401`, `502`, TLS) stays an error, and an explicit
-model flag always wins over the restore. Details and limits: [`docs/resume.md`](docs/resume.md).
+one wins. `claude -c` and `claude --resume <id>` restore the agent, route and
+exact model the session last ran on — from the session's record when the
+statusline wrote one, else from its transcript (`cc-harness-resume`). When that
+model maps to no agent, or the gateway no longer serves it, the session resumes
+on the Anthropic default with a notice; a route that fails (`403`, `401`,
+`502`, TLS) stays an error, and an explicit model flag always wins over the
+restore. Precedence, the record's location, troubleshooting and how to turn it
+off: [`docs/resume.md`](docs/resume.md).
 
 ## Configuration
 
