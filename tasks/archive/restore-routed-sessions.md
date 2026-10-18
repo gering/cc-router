@@ -1,3 +1,5 @@
+> Archived 2026-10-18 · PR #13 (merged @ 844d8f9) · task/restore-routed-sessions
+
 # Restore routed Claude sessions through an executable shim
 
 ## Goal
