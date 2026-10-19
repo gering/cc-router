@@ -40,6 +40,24 @@ type routing struct {
 // row's models and ceiling.
 func routedEnv(base *Env, rt routing, eff Row) *Env {
 	env := base.Clone()
+	for _, kv := range routingVars(rt, eff) {
+		env.Set(kv[0], kv[1])
+	}
+	return env
+}
+
+// unrouted is base without the recipe, for a native launch from inside a
+// routed session. NO_PROXY stays: it holds the caller's own entries too.
+func unrouted(base *Env) *Env {
+	env := base.Clone()
+	for _, kv := range routingVars(routing{}, Row{}) {
+		env.Unset(kv[0])
+	}
+	return env
+}
+
+// routingVars is the recipe itself, in export order.
+func routingVars(rt routing, eff Row) [][2]string {
 	set := [][2]string{
 		{"ANTHROPIC_BASE_URL", rt.baseURL},
 		{"ANTHROPIC_AUTH_TOKEN", rt.token},
@@ -63,10 +81,7 @@ func routedEnv(base *Env, rt routing, eff Row) *Env {
 		// Honoured only for non-claude-* model ids, so native runs are untouched.
 		[2]string{"CLAUDE_CODE_MAX_CONTEXT_TOKENS", strconv.Itoa(eff.MaxCtx)},
 	)
-	for _, kv := range set {
-		env.Set(kv[0], kv[1])
-	}
-	return env
+	return set
 }
 
 // localNoProxy exempts the loopback gateway from an inherited HTTP proxy —

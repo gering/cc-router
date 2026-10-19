@@ -1,9 +1,11 @@
 # cc-router agent table — one row per foreign agent; a new agent is a new row.
 # Tab-separated, ten fields, no header row; lines starting with # are comments.
 #
-#   name      agent id, exposed as cc-harness:<name> and as the claude
-#             wrapper's --<name> flag (share/claude.zsh); it must not collide
-#             with a wrapper or Claude Code option, which would shadow it
+#   name      agent id, exposed as cc-harness:<name> and as the value of
+#             `claude --proxy <name>` / `--local <name>`. The deprecated
+#             `--<name>` spelling still routes too, so a name must not collide
+#             with a Claude Code option while that spelling lives; a native
+#             shorthand (--opus) outranks it and stays native.
 #   model     ANTHROPIC_MODEL — the LAST-KNOWN model for a discovering agent
 #   fable     ANTHROPIC_DEFAULT_FABLE_MODEL — the picker tier above opus. Left
 #             unset, picking it sends a claude-fable id to the gateway, out of
@@ -28,6 +30,14 @@
 #   gpt-5.6-terra   372000 — the subscription cap
 #   gpt-6-sol/luna  372000 — floor-tested session budget, not a measured maximum
 #   gpt-6-astra     900000 measured, but exported as 372000: see the ladder
+#   claude-*-5-x    1000000 — max_input_tokens the route reports for all four
+#                   opus rungs (fable 5.1, opus/sonnet/haiku 5.5), matching
+#                   the provider's docs; not a measured fill
+#
+# OPUS is Anthropic's own ladder through the gateway's Claude OAuth login, so
+# every rung, the subagent slot included, stays in the Anthropic family. Its
+# ids are native ids too: a session resumes on this row only when its record
+# names the agent, never because its model starts with claude-.
 #
 # CODEX LADDER (astra/sol/terra/luna): one ladder in all four rows — fable =
 # Astra, opus = Sol, sonnet = Terra, haiku = Luna — so the rows differ ONLY in
@@ -48,3 +58,4 @@ sol	gpt-6-sol	gpt-6-astra	gpt-6-sol	gpt-5.6-terra	gpt-6-luna	372000	codex	-codex
 terra	gpt-5.6-terra	gpt-6-astra	gpt-6-sol	gpt-5.6-terra	gpt-6-luna	372000	codex	-codex-login	Codex
 luna	gpt-6-luna	gpt-6-astra	gpt-6-sol	gpt-5.6-terra	gpt-6-luna	372000	codex	-codex-login	Codex
 astra	gpt-6-astra	gpt-6-astra	gpt-6-sol	gpt-5.6-terra	gpt-6-luna	372000	codex	-codex-login	Codex
+opus	claude-opus-5-5	claude-fable-5-1	claude-opus-5-5	claude-sonnet-5-5	claude-haiku-5-5	1000000	claude	-claude-login	Anthropic

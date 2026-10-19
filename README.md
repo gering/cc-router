@@ -1,13 +1,17 @@
 # cc-router
 
 Run the Claude Code harness against foreign models — Grok, the GPT
-tiers — through your own hosted [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI),
-with one flag:
+tiers, or Claude itself through the gateway's own login — through your own
+hosted [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), with one
+flag:
 
 ```sh
-claude --grok     # the newest canonical Grok the gateway offers
-claude --sol      # gpt-6-sol
-claude            # unchanged: Anthropic
+claude --proxy grok        # the newest canonical Grok the gateway offers
+claude --proxy sol         # gpt-6-sol
+claude --proxy opus        # Claude Opus through the gateway's Claude login
+claude --local sol         # the same agent on the machine-local gateway
+claude                     # unchanged: Anthropic
+claude -c --noproxy        # resume a routed session natively
 ```
 
 Your subscriptions stay on a host you control. The laptop holds no OAuth
@@ -27,7 +31,7 @@ make build        # needs Go (version in go.mod; mise.toml pins it for mise user
 ./install.sh      # links bin/* into ~/.local/bin (CC_ROUTER_BIN_DIR=… to change)
 ```
 
-For the `claude --grok` flags, source the wrapper from your `~/.zshrc`:
+For the `claude --proxy` flags, source the wrapper from your `~/.zshrc`:
 
 ```sh
 source /path/to/cc-router/share/claude.zsh
@@ -69,7 +73,7 @@ tree). The target receives the route's key: `exec` is secret-bearing by design,
 so the boundary is who may run it. `list` prints one row per agent — raw TSV
 (`name model available note`, exactly four columns) to a pipe, a padded table
 to a terminal. `names` prints the agent names, one per line, without network
-access — the wrapper's `--<name>` flags. `resolve-model` maps a recorded model
+access — the values `claude --proxy`/`--local` accept. `resolve-model` maps a recorded model
 id back to its agent with no network access. `serves` asks the remote route
 whether it still offers a model id. `launch` is what `claude` runs (the wrapper
 and the shim both call it): it parses the flags below, restores a resumed
@@ -80,24 +84,37 @@ Exit codes: `1` unavailable, `2` usage or unknown agent, `3` not configured,
 `4` (`serves` only) the route answered without the model, `126` the target is
 not executable, `127` no such target; after a successful `exec` or `launch`
 the status is the target's. `launch` answers a command line it refuses
-(conflicting model flags, `--local` without an agent, two resume selectors)
+(conflicting model flags, `--proxy`/`--local` without an agent, two resume
+selectors)
 with `1` and a `claude:` message, as the wrapper always did.
 
 These are external contracts: work-system discovers the helper on `PATH` and
 parses `list`; the wrapper and the shim call `launch`, the statusline
 `record-session`, the resume bridge `resolve-model`.
 
-**The `claude` flags.** `claude --<agent>` routes through `exec` for every
-row of the effective table; `--local` picks the local route, `--yolo` is
-`--dangerously-skip-permissions`, and `--fable/--opus/--sonnet/--haiku` are
-native `--model` shorthands. Conflicting model flags are an error, never last
-one wins. `claude -c` and `claude --resume <id>` restore the agent, route and
+**The `claude` flags.** `claude --proxy <agent>` routes through `exec` on the
+remote route, `claude --local <agent>` on the local one, for every row of the
+effective table (`cc-harness-agents names`). The value may also be a model id:
+it routes on the agent that serves it, pinned to exactly that model
+(`--proxy claude-sonnet-5-5`, `--proxy gpt-6.1-sol`). `--model` is Claude's own
+flag and always native; `--noproxy` launches or resumes natively with your own
+login, combines with `--model`, and on a resume without one replaces the
+session's stored model with the account default. `--yolo` is
+`--dangerously-skip-permissions`. Conflicting choices are an error, never last
+one wins. The earlier spellings — `--<agent>` and a bare `--local` beside one —
+still route during the transition and print a deprecation notice naming the
+new form. The `--fable/--opus/--sonnet/--haiku` shorthands are deprecated too
+and keep their native meaning (`--opus` is `--model opus`, never the opus row —
+that is `--proxy opus`).
+`claude -c` and `claude --resume <id>` restore the agent, route and
 exact model the session last ran on — from the session's record when the
 statusline wrote one, else from its transcript (`cc-harness-resume`). When that
 model maps to no agent, or the gateway no longer serves it, the session resumes
 on the Anthropic default with a notice; a route that fails (`403`, `401`,
 `502`, TLS) stays an error, and an explicit model flag always wins over the
-restore. Precedence, the record's location, troubleshooting and how to turn it
+restore. An Anthropic (`claude-*`) model id resumes natively unless the
+session's record names its agent: the opus row never claims a native session
+from its transcript alone. Precedence, the record's location, troubleshooting and how to turn it
 off: [`docs/resume.md`](docs/resume.md).
 
 ## Configuration
@@ -149,7 +166,7 @@ blocking it.
 ## Architecture
 
 ```
-claude --sol
+claude --proxy sol
      │
      ▼
 cc-harness-agents ──── probes the route, sets the environment, execs claude
@@ -196,7 +213,7 @@ These are the decisions worth keeping when the code moves here.
 
 **Remote is the default; local is explicit and gated.** The host refreshes the
 OAuth tokens. A second proxy on the same credentials races those refreshes into
-`invalid_grant`, so there is no automatic fallback — `--local` says it out loud,
+`invalid_grant`, so there is no automatic fallback — `--local <agent>` says it out loud,
 and it only works inside a prepared window.
 
 **A new model is a table row, never a code path.** Provider, tiers and the real
@@ -227,7 +244,7 @@ their own per-user API key with the provider — that is what the key layer is
 for.
 
 One session speaks to one provider. Within a provider you can switch models
-freely (`/model gpt-5.6-terra` in a `--sol` session), because the context
+freely (`/model gpt-5.6-terra` in a `--proxy sol` session), because the context
 ceiling and the tier defaults are shared. Across providers they are not, so
 switching provider means starting a session — the resume path exists to make
 that cost one command.

@@ -45,10 +45,11 @@ private `gering/dotfiles` repository and move later.
 ## What cc-router is
 
 A client that makes the Claude Code harness talk to foreign models (Grok,
-GPT tiers) through a self-hosted [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI),
-selected by flag: `claude --grok`, `--sol`, plain `claude` stays
-Anthropic. The laptop holds no OAuth credentials — only a revocable per-machine
-key.
+GPT tiers, Claude via the gateway's own login) through a self-hosted
+[CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), selected by value:
+`claude --proxy grok`, `--local sol`, `--noproxy` for native; plain `claude`
+stays Anthropic. The laptop holds no OAuth credentials — only a revocable
+per-machine key.
 
 ## Architecture
 
@@ -58,7 +59,7 @@ Five pieces, deliberately layered so routing logic exists exactly once:
   the environment recipe (base URL, auth, headers, tier defaults, subagent
   model, context ceiling), then execs `claude`. Everything else calls it.
 - **`claude()` wrapper / executable shim** — thin callers of
-  `cc-harness-agents launch`, which parses the flags (read from the table) and
+  `cc-harness-agents launch`, which parses the flags (agents read from the table) and
   restores resumed sessions. The wrapper adds only the terminal capture and
   resume hint; the shim sits ahead of the native launcher on `PATH` so
   non-shell callers get the same routing.

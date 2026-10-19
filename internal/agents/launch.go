@@ -11,7 +11,7 @@ import (
 
 // launch is the executable path of `claude`: the shim and the interactive
 // wrapper both hand it Claude's argv, and it replaces itself with the native
-// launcher — routed when a foreign-model flag or a resumed session asks for
+// launcher — routed when --proxy, --local or a resumed session asks for
 // it, untouched otherwise. Parsing, conflicts and the resume restore live
 // here exactly once, so a caller that never sources a shell function gets the
 // same routing as a terminal.
@@ -32,11 +32,10 @@ var (
 		"--disallowed-tools", "--file", "--mcp-config", "--tools")
 	optionalValue = setOf("--cloud", "--debug", "--from-pr", "--prompt-suggestions", "--remote-control",
 		"--teleport", "--worktree", "-d", "-w")
-	// The NATIVE counterpart of the foreign-model flags: `--opus` IS `--model
-	// opus`, no more. They exist for resume — the restore stands down only for
-	// an explicit model choice, so without them `-c` always re-enters the
-	// session's foreign agent and there is no short way back to Claude.
-	// Aliases, not pinned ids: the CLI resolves them to the current release.
+	// The pre-`--proxy` native shorthands: `--opus` IS `--model opus`, no
+	// more. Deprecated, but they keep that meaning for the transition, so a
+	// habit never silently moves a session onto the gateway — even where a
+	// row (opus) shares the name.
 	nativeShorthands = setOf("--fable", "--opus", "--sonnet", "--haiku")
 )
 
@@ -52,15 +51,24 @@ func setOf(items ...string) map[string]bool {
 // flags consumed or expanded, plus what they selected. Matching is by exact
 // argument only: prompt text is never rewritten.
 type launchPlan struct {
-	args  []string
-	yolo  bool
-	local bool // the caller's --local
+	args []string
+	yolo bool
+	// The caller's route choice: `--proxy <want>` or `--local <want>`, where
+	// want is an agent or a model id; routeFlag is how the caller spelled it,
+	// for conflicts. `--noproxy` is the explicit native choice.
+	want      string
+	routeFlag string
+	proxy     bool
+	local     bool
+	noproxy   bool
+	// Spellings from before --proxy (`--sol`, a bare `--local`): still
+	// honoured, and named in a deprecation notice.
+	deprecated []string
 	// A recorded local route: routed like --local, never replayed as one.
 	restoredLocal bool
-	agent         string // foreign agent, from a flag or a restore
-	agentFlag     string // the flag the CALLER gave, for conflicts and replay
-	nativeModel   bool   // --model or a native shorthand
-	nativeFlag    string
+	agent         string // the resolved agent, from the caller's choice or a restore
+	nativeModel   bool   // --model or a deprecated native shorthand
+	nativeFlag    string // the shorthand, for conflicts and its notice
 	// The resume selector — its kind, --resume's value, and the indices of
 	// its option and value in args (-1 when absent). A kind, not a sentinel
 	// string: `--resume continue` names a session, it is not -c.
@@ -86,13 +94,15 @@ type conflict string
 func (c conflict) Error() string { return string(c) }
 
 // parseLaunch splits argv into Claude's argv and this layer's selections.
-// isAgent answers whether `--<name>` is a row of the table.
-func parseLaunch(argv []string, isAgent func(string) bool) (*launchPlan, error) {
+// isAgent answers whether `--<name>` is a row of the table; routes whether a
+// word names an agent or a model the table resolves.
+func parseLaunch(argv []string, isAgent, routes func(string) bool) (*launchPlan, error) {
 	p := &launchPlan{resumeAt: -1, resumeValueAt: -1}
 	passthrough, valuePending, optvalPending, optvalIsResume, variadicPending := false, false, false, false, false
+	routePending := "" // --proxy or --local, waiting for its value
 	for _, arg := range argv {
-		// After a bare `--` every token is verbatim, so a literal `--sol` reaches
-		// the CLI instead of being consumed here.
+		// After a bare `--` every token is verbatim, so a literal `--proxy`
+		// reaches the CLI instead of being consumed here.
 		if passthrough {
 			p.args = append(p.args, arg)
 			continue
@@ -103,6 +113,23 @@ func parseLaunch(argv []string, isAgent func(string) bool) (*launchPlan, error) 
 			p.args = append(p.args, arg)
 			valuePending = false
 			continue
+		}
+		// A route's value is never option-shaped: an agent or a model id. The
+		// word after a --local is its value only when it names one: otherwise
+		// it is the deprecated bare modifier, and `--sol --local "fix it"`
+		// keeps its prompt.
+		if routePending != "" {
+			flag := routePending
+			routePending = ""
+			if !strings.HasPrefix(arg, "-") && (flag == "--proxy" || routes(arg)) {
+				if err := p.choose(flag, arg, flag+" "+arg); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			if err := p.bareRoute(flag); err != nil {
+				return nil, err
+			}
 		}
 		// An OPTIONAL or VARIADIC value ends at the next option token.
 		if (optvalPending || variadicPending) && !strings.HasPrefix(arg, "-") {
@@ -144,6 +171,15 @@ func parseLaunch(argv []string, isAgent func(string) bool) (*launchPlan, error) 
 				p.nativeFlag, p.nativeModel = arg, true
 				p.args = append(p.args, "--model", strings.TrimPrefix(arg, "--"))
 			}
+		case arg == "--proxy" || arg == "--local":
+			routePending = arg
+		case strings.HasPrefix(arg, "--proxy=") || strings.HasPrefix(arg, "--local="):
+			flag, want, _ := strings.Cut(arg, "=")
+			if err := p.choose(flag, want, flag+" "+want); err != nil {
+				return nil, err
+			}
+		case arg == "--noproxy":
+			p.noproxy = true
 		case requiredValue[arg]:
 			valuePending = true
 			p.args = append(p.args, arg)
@@ -162,23 +198,67 @@ func parseLaunch(argv []string, isAgent func(string) bool) (*launchPlan, error) 
 		case arg == "--dangerously-skip-permissions":
 			p.yolo = true
 			p.args = append(p.args, arg)
-		case arg == "--local":
-			p.local = true
 		case strings.HasPrefix(arg, "--") && len(arg) > 2 && isAgent(arg[2:]):
-			// Refuse conflicting model flags instead of last-wins: a model's
-			// self-report is unreliable, so a silently wrong backend would not
-			// be noticeable in-session.
-			if p.agentFlag != "" && p.agentFlag != arg {
-				return nil, conflict("conflicting model flags: " + p.agentFlag + " and " + arg)
+			// The pre-`--proxy` spelling of an agent: honoured for the
+			// transition, routed by whichever route the line names.
+			p.deprecated = append(p.deprecated, arg)
+			if err := p.choose("", arg[2:], arg); err != nil {
+				return nil, err
 			}
-			p.agentFlag, p.agent = arg, arg[2:]
 		default:
 			// Unknown options reach Claude untouched, which rejects what it
 			// does not know — never a silent run on the default model.
 			p.args = append(p.args, arg)
 		}
 	}
+	if routePending != "" {
+		if err := p.bareRoute(routePending); err != nil {
+			return nil, err
+		}
+	}
+	switch {
+	case p.proxy && p.local:
+		return nil, conflict("--proxy conflicts with --local — pick one route")
+	case p.noproxy && (p.want != "" || p.local):
+		flag := p.routeFlag
+		if flag == "" {
+			flag = "--local"
+		}
+		return nil, conflict("--noproxy conflicts with " + flag + " — pick one")
+	}
 	return p, nil
+}
+
+// choose records the caller's agent or model. flag is the route it came
+// with ("" for a deprecated `--<agent>`, which takes the line's route).
+// Conflicting choices are refused instead of last-wins: a model's
+// self-report is unreliable, so a silently wrong backend would not be
+// noticeable in-session.
+func (p *launchPlan) choose(flag, want, spelled string) error {
+	if want == "" {
+		return conflict(flag + " needs an agent or model id")
+	}
+	// The value is argv: every message that names it gets it on one line,
+	// without control bytes for the caller's terminal.
+	spelled = oneLine(spelled)
+	if p.want != "" && p.want != want {
+		return conflict("conflicting model flags: " + p.routeFlag + " and " + spelled)
+	}
+	p.want, p.routeFlag = want, spelled
+	p.proxy = p.proxy || flag == "--proxy"
+	p.local = p.local || flag == "--local"
+	return nil
+}
+
+// bareRoute is --proxy or --local without a value. A bare --local is the
+// pre-`--proxy` modifier (`--local --sol`), honoured for the transition.
+func (p *launchPlan) bareRoute(flag string) error {
+	if flag == "--proxy" {
+		return conflict("--proxy needs an agent or model id")
+	}
+	p.local = true
+	p.deprecated = append(p.deprecated, flag)
+	return nil
 }
 
 func (p *launchPlan) markResume(kind selectorKind, value string) {
@@ -207,11 +287,15 @@ func (p *launchPlan) replay() string {
 	if p.yolo {
 		out = append(out, "--yolo")
 	}
-	if p.local {
-		out = append(out, "--local")
-	}
-	if p.agentFlag != "" {
-		out = append(out, p.agentFlag)
+	// One word per flag and in today's spelling, whatever the caller typed:
+	// the hint keeps only option-shaped words.
+	switch {
+	case p.want != "" && p.local:
+		out = append(out, "--local="+p.want)
+	case p.want != "":
+		out = append(out, "--proxy="+p.want)
+	case p.noproxy:
+		out = append(out, "--noproxy")
 	}
 	return strings.Join(out, " ")
 }
@@ -229,9 +313,10 @@ func (a *App) launch(home string, args []string) error {
 	if err != nil {
 		return err
 	}
-	// The table is read at most once, and only when an option could be a
-	// foreign-model flag or a resume needs it: a plain `claude` never loads it.
-	// An unreadable table makes no option a flag — Claude rejects them.
+	// The table is read at most once, and only when a route value or an
+	// option could name an agent, or a resume needs it: a plain `claude` never
+	// loads it. An unreadable table knows no agent — a deprecated `--<agent>`
+	// reaches Claude, which rejects it, and a route value is refused.
 	var table *Table
 	loadTable := func() *Table {
 		if table == nil {
@@ -243,16 +328,38 @@ func (a *App) launch(home string, args []string) error {
 		}
 		return table
 	}
-	p, err := parseLaunch(args, func(name string) bool { return loadTable().has(name) })
+	p, err := parseLaunch(args, func(name string) bool { return loadTable().has(name) }, func(want string) bool {
+		_, agent := loadTable().Find(want)
+		_, _, err := loadTable().ResolveModel(want)
+		return agent || err == nil
+	})
 	if err != nil {
 		return a.refuse(err)
 	}
+	if len(p.deprecated) > 0 {
+		use := "--local <agent>"
+		switch {
+		case p.want != "" && p.local:
+			use = "--local " + p.want
+		case p.want != "":
+			use = "--proxy " + p.want
+		}
+		fmt.Fprintf(a.Stderr, "claude: %s is deprecated — use %s\n", strings.Join(p.deprecated, " "), oneLine(use))
+	}
+	if p.nativeFlag != "" {
+		alias := strings.TrimPrefix(p.nativeFlag, "--")
+		gateway := ""
+		if loadTable().has(alias) {
+			gateway = ", or --proxy " + alias + " for the gateway"
+		}
+		fmt.Fprintf(a.Stderr, "claude: %s is deprecated — use --model %s%s\n", p.nativeFlag, alias, gateway)
+	}
 	// Inside a routed session (`cc-harness-agents exec <id> -- claude -c`, or
 	// a claude started from one) the route is already chosen and inherited: a
-	// restore would re-route it behind the caller's back. An explicit flag
+	// restore would re-route it behind the caller's back. An explicit choice
 	// still re-routes, like any explicit choice.
 	_, routed := a.Env.Lookup(keyAgent)
-	if p.resumeKind != noSelector && p.agent == "" && !p.nativeModel && !routed && a.Env.Get("CC_ROUTER_RESTORE") != "0" {
+	if p.resumeKind != noSelector && p.want == "" && !p.noproxy && !p.nativeModel && !routed && a.Env.Get("CC_ROUTER_RESTORE") != "0" {
 		// Refuse a second selector rather than rewriting the last one's slot:
 		// a trailing bare `--resume` would open the picker and land the user on
 		// a different conversation than the routing was resolved from. Only
@@ -264,17 +371,42 @@ func (a *App) launch(home string, args []string) error {
 			return err
 		}
 	}
-	if p.local && p.agent == "" {
-		return a.refuse(conflict("--local requires one foreign-model flag"))
+	if p.local && p.want == "" && p.agent == "" {
+		return a.refuse(conflict("--local needs an agent or model id: --local <agent|model>"))
 	}
 	// A native --model outranks ANTHROPIC_MODEL, so it would quietly win over
 	// the agent's tier — the same silent-wrong-tier trap.
-	if p.agent != "" && p.nativeModel {
+	if p.want != "" && p.nativeModel {
 		flag := p.nativeFlag
 		if flag == "" {
 			flag = "--model"
 		}
-		return a.refuse(conflict("--" + p.agent + " conflicts with " + flag + " — pick one"))
+		return a.refuse(conflict(p.routeFlag + " conflicts with " + flag + " — pick one"))
+	}
+	if p.want != "" {
+		// An agent first; otherwise the model id names the agent that serves
+		// it and is pinned, exactly as a restore pins a recorded model.
+		t := loadTable()
+		if _, ok := t.Find(p.want); ok {
+			p.agent = p.want
+		} else if agent, model, err := t.ResolveModel(p.want); err == nil {
+			p.agent = agent
+			a.pinModel(p, agent, model)
+		} else {
+			return a.refuse(conflict(fmt.Sprintf("%s: no such agent, and %v — see: %s list", p.routeFlag, err, progName)))
+		}
+	}
+	env := a.Env
+	if p.noproxy {
+		// A session that ran routed stored its foreign model, and Claude
+		// re-applies it on resume: it would reach Anthropic as a foreign id.
+		if p.resumeKind != noSelector && !p.nativeModel {
+			p.args = append([]string{"--model", "default"}, p.args...)
+		}
+		// Inside a routed session the recipe is inherited; native is without it.
+		if routed {
+			env = unrouted(a.Env)
+		}
 	}
 	if replayTo != "" {
 		// Best effort: the hint is a convenience, the launch is not.
@@ -282,9 +414,17 @@ func (a *App) launch(home string, args []string) error {
 	}
 	argv := append([]string{native}, p.args...)
 	if p.agent == "" {
-		return a.replace(argv, a.Env)
+		return a.replace(argv, env)
 	}
 	return a.routed(home, p.agent, p.local || p.restoredLocal, argv)
+}
+
+// pinModel routes the exact model, not the agent's primary: exec exports the
+// override instead, and it is inherited so a nested exec keeps it. The
+// `--model` also outranks any model Claude stored with a resumed session.
+func (a *App) pinModel(p *launchPlan, agent, model string) {
+	a.Env.Set(overrideVar(agent), model)
+	p.args = append([]string{"--model", model}, p.args...)
 }
 
 func (a *App) refuse(err error) error {
@@ -347,11 +487,7 @@ func (a *App) restore(home string, p *launchPlan, table func() *Table) error {
 	switch {
 	case r.status == resumeResolved && r.agent != "native":
 		p.agent = r.agent
-		// The override path pins the exact model: exec exports it instead of
-		// the row's primary, and it is inherited so a nested exec keeps it.
-		a.Env.Set(overrideVar(r.agent), r.model)
-		// Overrides any model Claude stored with the session as well.
-		p.args = append([]string{"--model", r.model}, p.args...)
+		a.pinModel(p, r.agent, r.model)
 		fmt.Fprintf(a.Stderr, "claude: restoring %s via %s:%s\n", r.model, agentNamespace, r.agent)
 	case r.status == resumeUnroutable:
 		// The session DID run on a foreign model nothing routes any more.
@@ -417,8 +553,12 @@ func (a *App) resolveResume(home string, p *launchPlan, table func() *Table) res
 	r := resumeRoute{status: resumeResolved, id: rec.SessionID, model: rec.Model, route: rec.Route}
 	// The recorded agent first; a session recorded before the marker existed,
 	// or whose row was renamed since, goes through the table's own mapping.
+	// An Anthropic id is never mapped onto an agent: only the record's own
+	// marker restores one, so a session on a renamed row resumes natively.
 	if t := table(); t.has(rec.Agent) {
 		r.agent = rec.Agent
+	} else if nativeID(rec.Model) {
+		r.agent = "native"
 	} else if agent, model, err := t.ResolveModel(rec.Model); err == nil {
 		r.agent, r.model = agent, model
 	} else {
@@ -431,8 +571,12 @@ func (a *App) resolveResume(home string, p *launchPlan, table func() *Table) res
 // native: a session no exec ever routed, on a Claude model. Claude restores
 // those itself.
 func (r sessionRecord) native() bool {
-	return r.Agent == "" && r.Route == "" && strings.HasPrefix(r.Model, "claude-")
+	return r.Agent == "" && r.Route == "" && nativeID(r.Model)
 }
+
+// nativeID: an Anthropic model id. Claude runs those natively, so a resume
+// never infers a route from one — cc-harness-resume holds the same rule.
+func nativeID(model string) bool { return strings.HasPrefix(model, "claude-") }
 
 // transcriptResume asks the interim bridge, which reads the session's last
 // model out of Claude's own transcript. Its exit status is the verdict; its

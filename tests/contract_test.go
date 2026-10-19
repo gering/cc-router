@@ -135,7 +135,7 @@ func TestListIsFourColumnTSV(t *testing.T) {
 		}
 		names = append(names, f[0])
 	}
-	if got := strings.Join(names, " "); got != "cc-harness:grok cc-harness:sol cc-harness:terra cc-harness:luna cc-harness:astra" {
+	if got := strings.Join(names, " "); got != "cc-harness:grok cc-harness:sol cc-harness:terra cc-harness:luna cc-harness:astra cc-harness:opus" {
 		t.Fatalf("rows = %s", got)
 	}
 }

@@ -92,10 +92,11 @@ Highest first:
 
 | Situation | Result |
 |---|---|
-| `--sol` / `--grok` / any agent flag given | the flag wins; no restore runs |
+| `--proxy <agent\|model>` / `--local <agent\|model>` given (or a deprecated `--<agent>`) | the choice wins; no restore runs |
 | native `--model` given | it wins; no restore runs |
-| `--fable` / `--opus` / `--sonnet` / `--haiku` given | shorthand for `--model <alias>`: it wins, no restore runs |
-| `--local` given | the restore runs, but on the local route |
+| `--noproxy` given | native, no restore runs; without `--model` the account default is pinned (`--model default`), so a routed session's stored foreign model never reaches Anthropic |
+| deprecated `--fable` / `--opus` / `--sonnet` / `--haiku` given | shorthand for `--model <alias>`, with a notice: it wins, no restore runs |
+| a bare `--local` given (deprecated) | the restore runs, but on the local route |
 | already inside a routed session (`CC_ROUTER_AGENT` set) | no restore — the inherited route stays |
 | the session's record: native | left to Claude, which restores its own model |
 | the session's record: routed | that agent, route and exact model, announced on stderr |
@@ -121,19 +122,22 @@ Before a remote restore `launch` asks the route whether it still serves the
 model (the check behind `cc-harness-agents serves`). Exit `4` — the route
 answered and no longer offers the model — is the only verdict that falls back
 to the Anthropic default (Robert, 2026-10-16); every other failure is the
-route's and keeps its status and message. An explicit `--sol`/`--grok` never
+route's and keeps its status and message. An explicit `--proxy <agent>` never
 asks: `exec` refuses a model the route lacks with "remote models missing:
 <id>". `--local` has no catalog to ask, so its own readiness gate decides.
 
-The four native shorthands exist **for this table**. Without an explicit model
-choice a bare `-c` always re-enters whatever foreign agent the session last ran
-on, so getting a resumed session back onto a Claude model used to mean
-spelling out `--model opus` every time. `claude -c --opus` is the short form
-and nothing else — it never routes.
+`--noproxy` exists **for this table**. Without an explicit model choice a bare
+`-c` always re-enters whatever foreign agent the session last ran on;
+`claude -c --noproxy` is the short way back to Claude, on your own login and
+default model (`--model <x>` alongside picks one). Inside a routed session it
+also drops the inherited routing recipe, which a plain launch keeps. The native
+shorthands (`claude -c --opus` = `--model opus`) still work for the
+transition, with a deprecation notice, and never route — not even `--opus`,
+which shares its name with the opus row (`--proxy opus` is the gateway).
 
 ## Disabling
 
-- One launch: pass an explicit model flag (`--opus`, `--model …`, `--sol`).
+- One launch: pass an explicit choice (`--noproxy`, `--model …`, `--proxy sol`).
 - Every launch: `CC_ROUTER_RESTORE=0` turns the restore off; flags still work.
 - No records: leave `record-session` out of the statusline; the transcript
   bridge still restores what it can.
@@ -198,6 +202,14 @@ luna, so a gpt id outside the discovery pattern (gpt-7-sol, a variant) stays
 unroutable rather than being handed an arbitrary tier. xAI
 answers name build ids (`grok-4.6-build`), which normalise to the proxy alias.
 
+**Anthropic ids are never inferred.** `resolve-model` refuses every `claude-*`
+id (exit `1`, "resumes natively"), the opus row's own primary included, and the
+bridge answers `native` for one before it asks. A session restores onto the
+opus agent only from a record naming `agent=opus`; a record whose agent the
+table no longer has resumes a `claude-*` id natively, left to Claude. The pure
+table lookup still maps those ids — that is what `claude --proxy
+claude-sonnet-5-5` routes by — but resume inference never does.
+
 ## Activation
 
 `install.sh` links `cc-harness-agents` and `cc-harness-resume`, and your
@@ -229,7 +241,7 @@ Calling the native binary by absolute path deliberately bypasses all of this.
   that last **answered** instead.
 - Custom per-tier settings and effort are recorded nowhere; a resume uses
   today's table. The route is recorded; for a session without a record remote
-  is assumed — pass `--local` explicitly.
+  is assumed — pass `--local <agent>` explicitly.
 - A restore reuses the `CC_HARNESS_MODEL_<AGENT>` override path, and an override
   is by definition a request for one reproducible model. When the restored model
   is a **different** one than the row's primary, it collapses the tiers that
@@ -244,7 +256,7 @@ Calling the native binary by absolute path deliberately bypasses all of this.
   an id no row carries any more (gpt-5.3-codex-spark, the former codex haiku
   rung) resolves to no profile, so `launch` prints that it could not restore
   and pins the Anthropic default — it does not quietly resume on the rung's
-  successor. Pass the tier flag (`--luna`, …) to continue on a routed model.
+  successor. Pass `--proxy <agent>` (`--proxy luna`, …) to continue on a routed model.
   An id a row DOES still carry but the route no longer serves ends the same
   way: `serves` reports it, and the session resumes on the Anthropic default
   with a notice (decided 2026-10-16).

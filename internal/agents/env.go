@@ -1,6 +1,9 @@
 package agents
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // Env is an ordered process environment. It is the single view every
 // component reads, so tests inject one instead of mutating the real process
@@ -41,6 +44,15 @@ func (e *Env) Set(key, value string) {
 		e.keys = append(e.keys, key)
 	}
 	e.vals[key] = value
+}
+
+// Unset removes a variable.
+func (e *Env) Unset(key string) {
+	if _, ok := e.vals[key]; !ok {
+		return
+	}
+	delete(e.vals, key)
+	e.keys = slices.DeleteFunc(e.keys, func(k string) bool { return k == key })
 }
 
 // Clone returns an independent copy.

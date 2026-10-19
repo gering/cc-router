@@ -257,7 +257,7 @@ ALL_MODELS="$(catalog_of "${ALL_MODEL_IDS[@]}")"
 # How many rows the packaged table is expected to publish. A LITERAL,
 # deliberately not derived from share/models.tsv: a count read out of the
 # implementation agrees with it by construction and would assert nothing.
-EXPECTED_ROWS=5
+EXPECTED_ROWS=6
 
 # ALL_MODELS minus the named id(s). It REFUSES to return a catalog it did not
 # actually shrink, so an absence assertion cannot pass for the wrong reason.
@@ -316,7 +316,7 @@ assert_eq "$EXPECTED_ROWS" "$(printf '%s\n' "$OUT" | grep -c '^cc-harness:')" "t
 # Padding is what makes the table readable: every row's `available` field has to
 # start in the same column as the header's.
 assert_eq 1 "$(printf '%s\n' "$OUT" | awk '{ print index($0, "yes") }' | sort -u | grep -cv '^0$')" "every available column starts at one shared offset"
-assert_contains "$OUT" 'cc-harness:sol    gpt-6-sol      yes' "short names are padded to the widest row"
+assert_contains "$OUT" 'cc-harness:sol    gpt-6-sol        yes' "short names are padded to the widest row"
 
 setup_case
 write_local_credentials
@@ -1581,14 +1581,19 @@ assert_contains "$ERR" 'no routing profile' "the refusal says why"
 setup_case
 run_capture "$HELPER" resolve-model claude-opus-5
 assert_eq 1 "$RC" "a native model has no agent profile"
+# Not even the opus row's own primary: an Anthropic id resumes natively, and
+# only a session record restores it onto the opus agent.
+run_capture "$HELPER" resolve-model claude-opus-5-5
+assert_eq 1 "$RC" "the opus row's primary is not inferred onto the opus agent"
+assert_contains "$ERR" 'resumes natively' "the refusal says an Anthropic id resumes natively"
 
-# --- names: the claude wrapper's foreign-model flags ---------------------------
+# --- names: the agents `claude --proxy` accepts ---------------------------------
 # Offline (no gateway, no credentials), in table order, and from the EFFECTIVE
 # table: a user override adds and removes flags with no wrapper edit.
 setup_case
 run_capture env -i HOME="$CASE_HOME" PATH="/usr/bin:/bin" "$HELPER" names
 assert_eq 0 "$RC" "names needs no route configuration"
-assert_eq $'grok\nsol\nterra\nluna\nastra' "$OUT" "names lists the packaged rows in table order"
+assert_eq $'grok\nsol\nterra\nluna\nastra\nopus' "$OUT" "names lists the packaged rows in table order"
 mkdir -p "$CASE_HOME/.config/cc-router"
 printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
   nova nova-1 nova-1 nova-1 nova-1 nova-1 200000 xai -xai-login xAI \
