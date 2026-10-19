@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Black-box tests for the interactive claude wrapper (share/claude.zsh) and
-# the launch path behind it: flag parsing, conflicts, the foreign-model flags
+# the launch path behind it: flag parsing, conflicts, the --proxy/--local values
 # read from the helper's table, passthrough, the herdr `script` skip, the
 # resume-history hint, and the executable shim. The resume restore itself is
 # tests/test-cc-harness-resume.py.
@@ -141,131 +141,221 @@ run_zsh() {
 
 routed() { cat "$WRAPPER_ROUTE_LOG"; }
 
-run_zsh --sol prompt
-assert_eq 0 "$RC" "zsh wrapper routes foreign models remotely by default"
-assert_eq 'sol remote' "$(routed)" "zsh remote route is the default"
-assert_contains "$(< "$WRAPPER_CLAUDE_LOG")" 'prompt' "zsh remote route preserves prompt argv"
+# Routing is chosen by value: `--proxy <agent|model>` (the remote route),
+# `--local <agent|model>`, `--noproxy` for native. `--model` is Claude's own
+# and always native. Both spellings of a value, consumed: neither the flag nor
+# the agent reaches Claude.
+for form in '--proxy sol' '--proxy=sol'; do
+  # shellcheck disable=SC2086 # split on purpose: one or two words
+  run_zsh $form prompt
+  assert_eq 0 "$RC" "$form routes"
+  assert_eq 'sol remote' "$(routed)" "$form takes the remote route"
+  assert_eq prompt "$(< "$WRAPPER_CLAUDE_LOG")" "$form is consumed, the prompt preserved"
+done
+for form in '--local sol' '--local=sol'; do
+  # shellcheck disable=SC2086 # split on purpose: one or two words
+  run_zsh $form prompt
+  assert_eq 0 "$RC" "$form routes"
+  assert_eq 'sol local' "$(routed)" "$form selects the helper's local route"
+done
 
-run_zsh --local --sol prompt
-assert_eq 0 "$RC" "zsh wrapper accepts --local with a foreign model"
-assert_eq 'sol local' "$(routed)" "--local selects the helper's local route"
-
-run_zsh --sol -- --local literal
+run_zsh --proxy sol -- --local literal
 assert_eq 0 "$RC" "zsh wrapper treats --local after bare -- as passthrough"
 assert_eq 'sol remote' "$(routed)" "passthrough --local does not select local routing"
 assert_contains "$(< "$WRAPPER_CLAUDE_LOG")" '--local' "passthrough --local reaches Claude argv"
 
+run_zsh --proxy '' prompt
+assert_eq 1 "$RC" "an empty --proxy value is refused, never a native launch"
+assert_contains "$ERR" '--proxy needs an agent or model id' "the empty value says what is missing"
+for bare in '--proxy' '--proxy --yolo' '--proxy='; do
+  # shellcheck disable=SC2086 # split on purpose
+  run_zsh $bare
+  assert_eq 1 "$RC" "'$bare' without a value is refused"
+  assert_contains "$ERR" '--proxy needs an agent or model id' "'$bare' says what is missing"
+done
+for bare in '--local' '--local -p'; do
+  # shellcheck disable=SC2086 # split on purpose
+  run_zsh $bare
+  assert_eq 1 "$RC" "'$bare' without an agent is refused"
+  assert_contains "$ERR" '--local needs an agent or model id' "'$bare' says what is missing"
+done
+# A word after --local is its value only when it names an agent or a model:
+# otherwise --local is the deprecated bare modifier and the word stays a prompt.
 run_zsh --local prompt
-assert_eq 1 "$RC" "zsh wrapper rejects --local without a foreign model"
-assert_contains "$ERR" '--local requires one foreign-model flag' "zsh wrapper explains bare --local rejection"
+assert_eq 1 "$RC" "a prompt after a bare --local is not taken for the agent"
+assert_contains "$ERR" '--local needs an agent or model id' "the bare --local still needs an agent"
+run_zsh --sol --local 'fix the bug'
+assert_eq 0 "$RC" "the deprecated --sol --local keeps a following prompt"
+assert_eq 'sol local' "$(routed)" "routed locally"
+assert_eq 'fix the bug' "$(< "$WRAPPER_CLAUDE_LOG")" "and the prompt reaches Claude"
+run_zsh --local gpt-6-luna prompt
+assert_eq 'luna local' "$(routed)" "a model id after --local is its value"
 
-run_zsh --local --sol --model native
+run_zsh --local sol --model native
 assert_eq 1 "$RC" "zsh wrapper keeps native-model conflict detection"
-assert_contains "$ERR" 'conflicts with --model' "zsh wrapper reports native-model conflict"
+assert_contains "$ERR" '--local sol conflicts with --model' "zsh wrapper reports native-model conflict"
+run_zsh --model native --proxy sol
+assert_eq 1 "$RC" "the --model conflict is caught in either order"
 
-run_zsh --sol --grok
+run_zsh --proxy sol --proxy grok
 assert_eq 1 "$RC" "zsh wrapper keeps foreign-model conflict detection"
-assert_contains "$ERR" 'conflicting model flags' "zsh wrapper reports foreign-model conflict"
+assert_contains "$ERR" 'conflicting model flags: --proxy sol and --proxy grok' "zsh wrapper reports foreign-model conflict"
+run_zsh --proxy sol --local sol
+assert_eq 1 "$RC" "two routes for one agent conflict"
+assert_contains "$ERR" '--proxy conflicts with --local' "the route conflict is reported"
+run_zsh --proxy sol --proxy=sol prompt
+assert_eq 'sol remote' "$(routed)" "repeating the same choice is not a conflict"
 
-# Every row of the packaged table is a flag, spelled exactly like the row name
-# and consumed by the wrapper: a selector that leaked through would reach
-# Claude as an unknown option instead of routing.
+run_zsh --proxy sol --proxy $'evil\e[2J'
+assert_eq 1 "$RC" "a conflicting value with control bytes is refused"
+assert_not_contains "$ERR" $'\e' "and never echoed raw to the terminal"
+
+run_zsh --proxy nosuch prompt
+assert_eq 1 "$RC" "an unknown agent or model is refused"
+assert_contains "$ERR" '--proxy nosuch: no such agent' "the refusal names the value"
+assert_eq '' "$(routed)" "an unknown value never routes"
+
+# A model id names the agent that serves it and pins exactly that model, as a
+# restore does — even an Anthropic id, because the caller chose the proxy.
+run_zsh --proxy claude-sonnet-5-5 prompt
+assert_eq 0 "$RC" "a model id routes"
+assert_eq 'opus remote' "$(routed)" "the model id selects the agent serving it"
+assert_eq $'--model\nclaude-sonnet-5-5\nprompt' "$(< "$WRAPPER_CLAUDE_LOG")" "and the exact model is pinned"
+
+# Every row of the packaged table is a value of --proxy.
 while IFS= read -r agent; do
-  run_zsh "--$agent" prompt
-  assert_eq 0 "$RC" "zsh wrapper accepts --$agent"
-  assert_eq "$agent remote" "$(routed)" "--$agent routes through its own row"
-  assert_not_contains "$(< "$WRAPPER_CLAUDE_LOG")" "--$agent" "--$agent is consumed, never leaked into Claude argv"
+  run_zsh --proxy "$agent" prompt
+  assert_eq 0 "$RC" "--proxy $agent is accepted"
+  assert_eq "$agent remote" "$(routed)" "--proxy $agent routes through its own row"
 done < <(env -i HOME="$CASE_HOME" "$HELPER" names)
 
-# The flags follow the EFFECTIVE table: a user table adds a row's flag with no
-# wrapper edit, and a row it drops is no longer a flag — the option reaches
+# The pre-`--proxy` spelling still routes for the transition, with a notice
+# naming today's spelling: `--<agent>`, and a bare `--local` beside one.
+run_zsh --sol prompt
+assert_eq 0 "$RC" "the deprecated --sol still launches"
+assert_eq 'sol remote' "$(routed)" "the deprecated --sol still routes remotely"
+assert_contains "$ERR" 'claude: --sol is deprecated — use --proxy sol' "and says what replaces it"
+assert_eq prompt "$(< "$WRAPPER_CLAUDE_LOG")" "the deprecated flag is consumed too"
+run_zsh --local --sol prompt
+assert_eq 'sol local' "$(routed)" "the deprecated --local --sol still routes locally"
+assert_contains "$ERR" '--local --sol is deprecated — use --local sol' "and the notice names the new form"
+run_zsh --sol --local -p prompt
+assert_eq 'sol local' "$(routed)" "in either order"
+run_zsh --sol --grok
+assert_eq 1 "$RC" "two deprecated agent flags still conflict"
+assert_contains "$ERR" 'conflicting model flags: --sol and --grok' "naming both as typed"
+run_zsh --sol --model native
+assert_contains "$ERR" '--sol conflicts with --model' "a deprecated flag still conflicts with --model"
+run_zsh --proxy sol prompt
+assert_not_contains "$ERR" 'deprecated' "today's spelling carries no notice"
+
+# The values follow the EFFECTIVE table: a user table adds an agent with no
+# wrapper edit, and a row it drops no longer routes — its old flag reaches
 # Claude untouched, which rejects it, rather than routing anywhere.
 mkdir -p "$CASE_HOME/.config/cc-router"
 printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
   nova nova-1 nova-1 nova-1 nova-1 nova-1 200000 xai -xai-login xAI \
   > "$CASE_HOME/.config/cc-router/models.tsv"
-run_zsh --nova prompt
-assert_eq 0 "$RC" "a row added by a user table is a flag"
+run_zsh --proxy nova prompt
+assert_eq 0 "$RC" "a row added by a user table is an agent"
 assert_eq 'nova remote' "$(routed)" "and routes to that row"
 run_zsh --grok prompt
 assert_eq '' "$(routed)" "a row the table dropped never routes"
-assert_contains "$(< "$WRAPPER_CLAUDE_LOG")" '--grok' "its flag reaches Claude as an unknown option"
+assert_contains "$(< "$WRAPPER_CLAUDE_LOG")" '--grok' "its old flag reaches Claude as an unknown option"
 rm -rf "$CASE_HOME/.config"
 
-# Unknown options and prompt text pass through untouched.
-run_zsh --verbose --print 'tell me about --sol'
-assert_eq 0 "$RC" "unknown options still launch"
-assert_eq '' "$(routed)" "an unknown option never routes"
-assert_eq $'--verbose\n--print\ntell me about --sol' "$(< "$WRAPPER_CLAUDE_LOG")" "unknown options and prompt text reach Claude verbatim"
-
-run_zsh prompt
-assert_eq 0 "$RC" "a plain launch still succeeds"
-assert_eq '' "$(routed)" "a plain launch never routes"
-assert_eq prompt "$(< "$WRAPPER_CLAUDE_LOG")" "and reaches Claude unchanged"
-
-# Without the helper nothing can parse the flags: refuse, naming the fix,
-# rather than launching on the default model.
-# Expanded by the child zsh, not this Bash test harness.
-# shellcheck disable=SC2016
-run_capture env -i HOME="$CASE_HOME" PATH=/usr/bin:/bin HERDR_ENV=1 \
-  "$ZSH_BIN" -f -c 'source "$1"; claude --sol prompt' zsh "$ZSH_FUNCTIONS"
-assert_eq 1 "$RC" "without the helper the wrapper refuses"
-assert_contains "$ERR" 'cc-harness-agents not on PATH' "and names what is missing"
-
-# Native-model shorthand. The point of these is the RESUME path: the restore only
-# stands down for an explicit model choice, so `-c --opus` has to reach Claude as
-# a real `--model opus` and must never touch the routing helper.
+# The native shorthands are deprecated but keep their meaning for the
+# transition: `--opus` IS `--model opus`, even though a row shares the name —
+# a habit must never silently move a session onto the gateway.
 for native_case in fable opus sonnet haiku; do
   run_zsh "--$native_case" prompt
-  assert_eq 0 "$RC" "zsh wrapper accepts --$native_case"
-  # The fake logs one argv entry per line, so the expansion is a two-line pair.
-  assert_contains "$(< "$WRAPPER_CLAUDE_LOG")" "--model
-$native_case" "--$native_case expands to a native --model"
-  assert_not_contains "$(< "$WRAPPER_CLAUDE_LOG")" "--$native_case" "the shorthand itself never reaches Claude argv"
+  assert_eq 0 "$RC" "the deprecated --$native_case still launches"
+  assert_eq $'--model\n'"$native_case"$'\nprompt' "$(< "$WRAPPER_CLAUDE_LOG")" "--$native_case expands to a native --model"
   assert_eq '' "$(routed)" "--$native_case is native, so it never routes"
+  assert_contains "$ERR" "--$native_case is deprecated — use --model $native_case" "--$native_case names its replacement"
 done
+run_zsh --opus prompt
+assert_contains "$ERR" ', or --proxy opus for the gateway' "a shorthand that is also a row names the gateway route"
+run_zsh --sonnet prompt
+assert_not_contains "$ERR" 'gateway' "a shorthand no row shares has no gateway hint"
 
-run_zsh --opus --sol
-assert_eq 1 "$RC" "a native shorthand conflicts with a foreign flag"
-# The message must name the flag the USER typed. Reporting "--model" here would
-# point at a flag that never appeared on the command line.
-assert_contains "$ERR" 'conflicts with --opus' "the conflict names the shorthand, not --model"
-assert_not_contains "$ERR" 'conflicts with --model' "a shorthand conflict never blames a bare --model"
-
-run_zsh --sol --model native
-assert_eq 1 "$RC" "a bare --model still conflicts with a foreign flag"
-assert_contains "$ERR" 'conflicts with --model' "a bare --model is still named as itself"
-
+run_zsh --opus --proxy sol
+assert_eq 1 "$RC" "a native shorthand conflicts with a route"
+assert_contains "$ERR" '--proxy sol conflicts with --opus' "the conflict names the shorthand, not --model"
 run_zsh --opus --model sonnet
 assert_eq 1 "$RC" "a native shorthand conflicts with an explicit --model"
-assert_contains "$ERR" 'conflicts with --model' "the shorthand/--model conflict is reported"
-
+assert_contains "$ERR" '--opus conflicts with --model' "the shorthand/--model conflict is reported"
 run_zsh --model sonnet --opus
 assert_eq 1 "$RC" "the conflict is caught in either order"
-
 run_zsh --opus --fable
 assert_eq 1 "$RC" "two different native shorthands conflict"
-assert_contains "$ERR" 'conflicting model flags' "the native/native conflict is reported"
-
+assert_contains "$ERR" 'conflicting model flags: --opus and --fable' "the native/native conflict is reported"
 run_zsh --opus --opus prompt
-assert_eq 0 "$RC" "repeating the same native shorthand is not a conflict"
 assert_eq 1 "$(grep -c -- '--model' "$WRAPPER_CLAUDE_LOG")" "a repeated shorthand is only expanded once"
-
 run_zsh --opus -- --opus literal
-assert_eq 0 "$RC" "a literal --opus after bare -- is passthrough"
 assert_contains "$(< "$WRAPPER_CLAUDE_LOG")" '--opus' "passthrough --opus reaches Claude argv"
+
+# --noproxy: native, whatever the session ran on. It conflicts with every
+# route and combines with --model.
+run_zsh --noproxy prompt
+assert_eq 0 "$RC" "--noproxy launches"
+assert_eq '' "$(routed)" "--noproxy never routes"
+assert_eq prompt "$(< "$WRAPPER_CLAUDE_LOG")" "a fresh --noproxy launch is plain Claude"
+run_zsh --noproxy --model sonnet prompt
+assert_eq $'--model\nsonnet\nprompt' "$(< "$WRAPPER_CLAUDE_LOG")" "--noproxy combines with --model"
+for routed_by in '--proxy sol' '--local sol' '--sol'; do
+  # shellcheck disable=SC2086 # split on purpose
+  run_zsh --noproxy $routed_by prompt
+  assert_eq 1 "$RC" "--noproxy refuses $routed_by"
+  assert_contains "$ERR" "--noproxy conflicts with $routed_by" "naming $routed_by"
+done
+run_zsh --local --noproxy prompt
+assert_contains "$ERR" '--noproxy conflicts with --local' "a bare --local is refused too"
+
+# Resuming natively: no restore, and the session's stored model — foreign if
+# it ran routed — is replaced by the account default, unless --model says.
+mkdir -p "$CASE_HOME/.cache/cc-router/sessions"
+chmod 700 "$CASE_HOME/.cache/cc-router" "$CASE_HOME/.cache/cc-router/sessions"
+printf '{"session_id":"12345678-1234-1234-1234-123456789abc","cwd":"/","agent":"sol","route":"remote","model":"gpt-6-sol","updated_at":%s}' \
+  "$(date +%s)" > "$CASE_HOME/.cache/cc-router/sessions/12345678-1234-1234-1234-123456789abc.json"
+chmod 600 "$CASE_HOME/.cache/cc-router/sessions/12345678-1234-1234-1234-123456789abc.json"
+run_zsh --resume 12345678-1234-1234-1234-123456789abc
+assert_eq 'sol remote' "$(routed)" "without --noproxy the recorded route is restored"
+run_zsh --resume 12345678-1234-1234-1234-123456789abc --noproxy
+assert_eq 0 "$RC" "--noproxy resumes a routed session"
+assert_eq '' "$(routed)" "natively"
+assert_eq $'--model\ndefault\n--resume\n12345678-1234-1234-1234-123456789abc' "$(< "$WRAPPER_CLAUDE_LOG")" "on the account default, never the stored foreign model"
+run_zsh -c --noproxy --model opus
+assert_eq $'-c\n--model\nopus' "$(< "$WRAPPER_CLAUDE_LOG")" "an explicit --model is the native model instead"
+rm -rf "$CASE_HOME/.cache/cc-router"
+
+# Inside a routed session the recipe is inherited, so a plain claude stays
+# routed; --noproxy leaves it behind.
+cat > "$FAKE_BIN/claude-env" << 'FAKE_ENV'
+#!/bin/sh
+env | grep -oE '^(ANTHROPIC_[A-Z_]*|CLAUDE_CODE_[A-Z_]*|CLIPROXY_ROUTE|CC_ROUTER_AGENT)=' | sort > "$WRAPPER_CLAUDE_LOG"
+FAKE_ENV
+chmod +x "$FAKE_BIN/claude-env"
+INHERITED=(CC_ROUTER_CLAUDE="$FAKE_BIN/claude-env" CC_ROUTER_AGENT=sol CLIPROXY_ROUTE=remote
+  ANTHROPIC_BASE_URL=https://gateway.invalid ANTHROPIC_AUTH_TOKEN=routed-secret ANTHROPIC_MODEL=gpt-6-sol
+  CLAUDE_CODE_MAX_CONTEXT_TOKENS=372000)
+run_capture env -i "${ROUTE_ENV[@]}" "${INHERITED[@]}" "$SHIM" prompt
+assert_contains "$(< "$WRAPPER_CLAUDE_LOG")" 'ANTHROPIC_BASE_URL=' "a plain launch inside a routed session keeps the route"
+run_capture env -i "${ROUTE_ENV[@]}" "${INHERITED[@]}" "$SHIM" --noproxy prompt
+assert_eq 0 "$RC" "--noproxy launches inside a routed session"
+assert_eq '' "$(< "$WRAPPER_CLAUDE_LOG")" "and hands Claude none of the routing recipe"
 
 run_zsh --yolo prompt
 assert_eq $'--dangerously-skip-permissions\nprompt' "$(< "$WRAPPER_CLAUDE_LOG")" "--yolo expands to --dangerously-skip-permissions"
 
-# The script wrapper path must preserve both --local and the foreign model in the
-# reconstructed resume-history command. The isolated function copy uses a
+# The script wrapper path must preserve the route and its agent in the
+# reconstructed resume-history command, as one `--local=<agent>` word. The isolated function copy uses a
 # deterministic script(1) fake; the production source path is asserted separately.
 rm -f -- "$FAKE_SCRIPT_RAN" "$TEST_SCRIPT_RAN"
 # Expanded by the child zsh, not this Bash test harness.
 # shellcheck disable=SC2016
 run_capture env -i "${ROUTE_ENV[@]}" TEST_SCRIPT_BIN="$FAKE_BIN/test-script" \
-  "$ZSH_BIN" -f -c 'OSTYPE=darwin25; source "$1"; claude --yolo --local --sol; fc -l -1' zsh "$ZSH_FUNCTIONS"
+  "$ZSH_BIN" -f -c 'OSTYPE=darwin25; source "$1"; claude --yolo --local sol; fc -l -1' zsh "$ZSH_FUNCTIONS"
 assert_eq 0 "$RC" "zsh wrapper script path succeeds"
 if grep -Fq 'local script_bin="/usr/bin/script"' "$CLAUDE_ZSH"; then
   pass "zsh wrapper pins the production system script path"
@@ -283,7 +373,7 @@ if [ ! -e "$FAKE_SCRIPT_RAN" ]; then
 else
   fail "zsh wrapper never executes PATH script"
 fi
-assert_contains "$OUT" 'claude --resume "12345678-1234-1234-1234-123456789abc" --yolo --local --sol' "resume history preserves yolo, local route, and model"
+assert_contains "$OUT" 'claude --resume "12345678-1234-1234-1234-123456789abc" --yolo --local=sol' "resume history preserves yolo, local route, and agent in one word"
 
 # A route the restore brought back is not the caller's: the hint replays the
 # caller's flags only, so a local record is not pinned local forever.
@@ -320,9 +410,9 @@ fi
 # execs the PRODUCTION helper next to it, which does not trust the test
 # gateway's CA, so routing is shown on the local route.
 : > "$WRAPPER_ROUTE_LOG"
-run_capture env -i "${ROUTE_ENV[@]}" PATH="$PKG/bin/shim:$COMMON_PATH" /bin/sh -c 'claude --local --sol --yolo prompt'
+run_capture env -i "${ROUTE_ENV[@]}" PATH="$PKG/bin/shim:$COMMON_PATH" /bin/sh -c 'claude --local sol --yolo prompt'
 assert_eq 0 "$RC" "the shim launches without a shell function"
-assert_eq 'sol local' "$(routed)" "the shim routes a foreign-model flag"
+assert_eq 'sol local' "$(routed)" "the shim routes a --local choice"
 assert_eq $'--dangerously-skip-permissions\nprompt' "$(< "$WRAPPER_CLAUDE_LOG")" "the shim parses like the wrapper"
 
 # Every step execs: the process that ran the shim IS Claude, so nothing

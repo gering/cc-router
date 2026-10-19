@@ -109,6 +109,11 @@ func (a *App) resolveModel(home string, args []string) error {
 	if err != nil {
 		return err
 	}
+	// resolve-model answers resume inference, and an Anthropic id resumes
+	// natively whatever row serves it: only a session record names the agent.
+	if nativeID(args[0]) {
+		return fail(exitUnavailable, "model %s is an Anthropic id: it resumes natively unless a session record names its agent", oneLine(args[0]))
+	}
 	agent, model, err := table.ResolveModel(args[0])
 	if err != nil {
 		return err
@@ -117,8 +122,8 @@ func (a *App) resolveModel(home string, args []string) error {
 	return nil
 }
 
-// names prints the agent names, one per line in table order: the claude
-// wrapper's foreign-model flags. Offline, so it can run on every launch.
+// names prints the agent names, one per line in table order: what
+// `claude --proxy` accepts. Offline, so it can run on every launch.
 func (a *App) names(home string, args []string) error {
 	if len(args) != 0 {
 		return usageError()

@@ -305,7 +305,7 @@ class ResumeTests(Fixture):
         # explicit agent and fails there, naming the cause, if it cannot serve.
         self.session(models=('gpt-5.6-sol',))
         self.serve([m for m in SERVED if m != 'gpt-5.6-sol'])
-        data, _ = self.run_wrapper('--resume', A, '--sol')
+        data, _ = self.run_wrapper('--resume', A, '--proxy', 'sol')
         self.assertEqual(data['agent'], 'sol')
         self.assertEqual(self.probes(), 1, 'only the routed exec probes')
 
@@ -319,6 +319,16 @@ class ResumeTests(Fixture):
         self.session(models=('claude-opus-5',))
         self.run_wrapper('--resume', A)
         self.assertEqual(self.probes(), 0)
+
+    def test_anthropic_ids_resume_natively_without_a_record(self):
+        # claude-opus-5-5 is the opus row's own primary, and still a session
+        # that ran on it resumes natively unless a record names the agent:
+        # the transcript alone never infers a route from a claude- id.
+        for model in ('claude-opus-5-5', 'claude-sonnet-5-5'):
+            self.session(models=(model,))
+            data, warning = self.run_wrapper('--resume', A)
+            self.assertEqual((data['agent'], data['args'], warning), (None, ['--resume', A], ''), model)
+            self.assertEqual(self.probes(), 0, model)
 
     def test_unroutable_foreign_model_pins_the_default(self):
         # A foreign model nothing serves: CC would re-apply the stored id against
@@ -376,22 +386,28 @@ class ResumeTests(Fixture):
 
     def test_explicit_model_wins(self):
         self.session()
-        data, _ = self.run_wrapper('--resume',A,'--grok')
+        data, _ = self.run_wrapper('--resume',A,'--proxy','grok')
         self.assertEqual(data['agent'],'grok')
         self.assertEqual(data['pins'],{})
         data, _ = self.run_wrapper('--resume',A,'--model','opus')
         self.assertIsNone(data['agent'])
-        # The native shorthands are the reason the restore is escapable at all
-        # without typing `--model <alias>`: each must stand the restore down and
-        # reach the CLI as a real --model.
+        # --noproxy is the short way back to Claude: the restore stands down,
+        # and the stored foreign model gives way to the account default.
+        data, warning = self.run_wrapper('--resume',A,'--noproxy')
+        self.assertEqual((data['agent'], data['pins'], warning), (None, {}, ''))
+        self.assertEqual(data['args'], ['--model','default','--resume',A])
+        data, _ = self.run_wrapper('--resume',A,'--noproxy','--model','sonnet')
+        self.assertEqual((data['agent'], data['args']), (None, ['--resume',A,'--model','sonnet']))
+        # The deprecated native shorthands keep their meaning: each stands the
+        # restore down and reaches the CLI as a real --model, --opus included
+        # although a row shares its name.
         for flag, alias in (('--opus','opus'), ('--fable','fable'),
                             ('--sonnet','sonnet'), ('--haiku','haiku')):
-            data, _ = self.run_wrapper('--resume',A,flag)
+            data, warning = self.run_wrapper('--resume',A,flag)
             self.assertIsNone(data['agent'], flag)
             self.assertEqual(data['pins'], {}, flag)
-            self.assertIn('--model', data['args'])
-            self.assertEqual(data['args'][data['args'].index('--model')+1], alias)
-            self.assertNotIn(flag, data['args'])
+            self.assertEqual(data['args'], ['--resume',A,'--model',alias], flag)
+            self.assertIn('deprecated', warning, flag)
 
     def test_local_can_be_selected_on_resume(self):
         self.session()
@@ -630,6 +646,20 @@ class SidecarTests(Fixture):
         self.assertEqual((data['agent'], data['args'], warning), (None, ['--resume', A], ''))
         self.assertEqual(self.probes(), 0)
 
+    def test_opus_resumes_through_the_proxy_from_its_record(self):
+        self.session(models=('claude-opus-5-5',))
+        self.sidecar(agent='opus', model='claude-sonnet-5-5')
+        data, _ = self.run_wrapper('--resume', A)
+        self.assertEqual((data['agent'], data['model']), ('opus', 'claude-sonnet-5-5'))
+        self.assertEqual(data['args'], ['--model', 'claude-sonnet-5-5', '--resume', A])
+
+    def test_a_record_on_a_vanished_row_resumes_an_anthropic_id_natively(self):
+        # A record whose agent the table no longer has falls back to the
+        # model id, and a claude- id has no route to fall back to.
+        self.sidecar(agent='gone', model='claude-opus-5-5')
+        data, warning = self.run_wrapper('--resume', A)
+        self.assertEqual((data['agent'], data['args'], warning), (None, ['--resume', A], ''))
+
     def test_continue_takes_the_newest_record_of_this_exact_directory(self):
         self.sidecar(A, model='gpt-6-sol', agent='sol', age=200)
         self.sidecar(B, model='grok-4.6', agent='grok', age=100)
@@ -686,7 +716,7 @@ class SidecarTests(Fixture):
 
     def test_explicit_choices_override_the_record(self):
         self.sidecar(agent='sol', model='gpt-6-sol')
-        data, _ = self.run_wrapper('--resume', A, '--grok')
+        data, _ = self.run_wrapper('--resume', A, '--proxy', 'grok')
         self.assertEqual((data['agent'], data['pins']), ('grok', {}))
         data, _ = self.run_wrapper('--resume', A, '--model', 'opus')
         self.assertEqual((data['agent'], data['args']), (None, ['--resume', A, '--model', 'opus']))

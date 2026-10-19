@@ -7,7 +7,7 @@ the deltas are summarized below).
 
 Counts are **assertion call sites**, not executed assertions: loops and
 `assert_secret_safe` (three checks) expand at run time. The routing suite here
-runs 477 assertions (`tests/run`), the wrapper suite 97.
+runs 479 assertions (`tests/run`), the wrapper suite 146.
 
 | Disposition | Sites |
 |---|---|
@@ -110,6 +110,22 @@ launch, no lingering process, exit status, link resolution, recursion and
 missing-launcher refusals), the `CC_ROUTER_AGENT` marker in both routes, and
 the session-record cases in `tests/test-cc-harness-resume.py` (`SidecarTests`),
 including the render-order case (a late writer of an older render loses).
+
+**Routing by value** (cc-router, issue #17 as redesigned with Robert,
+2026-10-19): `claude --proxy <agent|model>` and `--local <agent|model>` replace
+the per-row `--<agent>` flags and the boolean `--local`, `--noproxy` is the
+explicit native choice, and the `--fable/--opus/--sonnet/--haiku` shorthands
+are deprecated but stay native (`--opus` never takes the opus row). The moved
+wrapper rows keep their assertions in today's spelling (`--proxy sol` for
+`--sol`, `--local sol` for `--local --sol`); the per-row loop now runs
+`--proxy <row>`; the shorthand rows also assert the notice. Added: both value
+forms, missing, empty and unknown values, a model id pinned on the agent
+serving it, the deprecated spellings still routing with a notice (a prompt
+after a bare `--local` stays a prompt), `--noproxy` (conflicts, with
+`--model`, a resumed routed session on the account default, the routing recipe
+dropped inside a routed session), and in the resume suite: Anthropic ids
+resuming natively without a record, the opus row restored only from its
+record, and a record on a vanished row resuming a `claude-*` id natively.
 
 | Upstream line | Assertion | Here |
 |---|---|---|
@@ -266,24 +282,24 @@ including the render-order case (a late writer of an older render loses).
 | 934 | --astra preserves the prompt argv | moved with the wrapper: tests/test-claude-wrapper.sh (generalized from --astra to a loop over every `names` row) |
 | 940 | a plain launch still succeeds | moved with the wrapper: tests/test-claude-wrapper.sh |
 | 941 | a plain launch never reaches the routing helper | moved with the wrapper: tests/test-claude-wrapper.sh |
-| 949 | zsh wrapper accepts --$native_case | moved with the wrapper: tests/test-claude-wrapper.sh |
-| 951 | --$native_case expands to a native --model | moved with the wrapper: tests/test-claude-wrapper.sh |
-| 953 | the shorthand itself never reaches Claude argv | moved with the wrapper: tests/test-claude-wrapper.sh |
-| 954 | --$native_case is native, so it never routes | moved with the wrapper: tests/test-claude-wrapper.sh |
-| 958 | a native shorthand conflicts with a foreign flag | moved with the wrapper: tests/test-claude-wrapper.sh |
-| 961 | the conflict names the shorthand, not --model | moved with the wrapper: tests/test-claude-wrapper.sh |
-| 962 | a shorthand conflict never blames a bare --model | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 949 | zsh wrapper accepts --$native_case | moved with the wrapper: tests/test-claude-wrapper.sh (the shorthand is deprecated now and keeps its native meaning) |
+| 951 | --$native_case expands to a native --model | moved with the wrapper: tests/test-claude-wrapper.sh (the shorthand is deprecated now and keeps its native meaning) |
+| 953 | the shorthand itself never reaches Claude argv | moved with the wrapper: tests/test-claude-wrapper.sh (the shorthand is deprecated now and keeps its native meaning) |
+| 954 | --$native_case is native, so it never routes | moved with the wrapper: tests/test-claude-wrapper.sh (the shorthand is deprecated now and keeps its native meaning) |
+| 958 | a native shorthand conflicts with a foreign flag | moved with the wrapper: tests/test-claude-wrapper.sh (the shorthand is deprecated now and keeps its native meaning) |
+| 961 | the conflict names the shorthand, not --model | moved with the wrapper: tests/test-claude-wrapper.sh (the shorthand is deprecated now and keeps its native meaning) |
+| 962 | a shorthand conflict never blames a bare --model | moved with the wrapper: tests/test-claude-wrapper.sh (the shorthand is deprecated now and keeps its native meaning) |
 | 965 | a bare --model still conflicts with a foreign flag | moved with the wrapper: tests/test-claude-wrapper.sh |
 | 966 | a bare --model is still named as itself | moved with the wrapper: tests/test-claude-wrapper.sh |
-| 969 | a native shorthand conflicts with an explicit --model | moved with the wrapper: tests/test-claude-wrapper.sh |
-| 970 | the shorthand/--model conflict is reported | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 969 | a native shorthand conflicts with an explicit --model | moved with the wrapper: tests/test-claude-wrapper.sh (the shorthand is deprecated now and keeps its native meaning) |
+| 970 | the shorthand/--model conflict is reported | moved with the wrapper: tests/test-claude-wrapper.sh (the shorthand is deprecated now and keeps its native meaning) |
 | 973 | the conflict is caught in either order | moved with the wrapper: tests/test-claude-wrapper.sh |
-| 976 | two different native shorthands conflict | moved with the wrapper: tests/test-claude-wrapper.sh |
-| 977 | the native/native conflict is reported | moved with the wrapper: tests/test-claude-wrapper.sh |
-| 980 | repeating the same native shorthand is not a conflict | moved with the wrapper: tests/test-claude-wrapper.sh |
-| 981 | a repeated shorthand is only expanded once | moved with the wrapper: tests/test-claude-wrapper.sh |
-| 984 | a literal --opus after bare -- is passthrough | moved with the wrapper: tests/test-claude-wrapper.sh |
-| 985 | passthrough --opus reaches Claude argv | moved with the wrapper: tests/test-claude-wrapper.sh |
+| 976 | two different native shorthands conflict | moved with the wrapper: tests/test-claude-wrapper.sh (the shorthand is deprecated now and keeps its native meaning) |
+| 977 | the native/native conflict is reported | moved with the wrapper: tests/test-claude-wrapper.sh (the shorthand is deprecated now and keeps its native meaning) |
+| 980 | repeating the same native shorthand is not a conflict | moved with the wrapper: tests/test-claude-wrapper.sh (the shorthand is deprecated now and keeps its native meaning) |
+| 981 | a repeated shorthand is only expanded once | moved with the wrapper: tests/test-claude-wrapper.sh (the shorthand is deprecated now and keeps its native meaning) |
+| 984 | a literal --opus after bare -- is passthrough | moved with the wrapper: tests/test-claude-wrapper.sh (the shorthand is deprecated now and keeps its native meaning) |
+| 985 | passthrough --opus reaches Claude argv | moved with the wrapper: tests/test-claude-wrapper.sh (the shorthand is deprecated now and keeps its native meaning) |
 | 997 | zsh wrapper script path succeeds | moved with the wrapper: tests/test-claude-wrapper.sh |
 | 999 | zsh wrapper pins the production system script path | moved with the wrapper: tests/test-claude-wrapper.sh |
 | 1001 | zsh wrapper pins the production system script path | moved with the wrapper: tests/test-claude-wrapper.sh |

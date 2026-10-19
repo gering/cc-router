@@ -78,6 +78,10 @@ var (
 		{"gpt-6-sol", 372000},
 		{"gpt-6-luna", 372000},
 		{"gpt-6-astra", 900000},
+		{"claude-fable-5-1", 1000000},
+		{"claude-opus-5-5", 1000000},
+		{"claude-sonnet-5-5", 1000000},
+		{"claude-haiku-5-5", 1000000},
 	}
 
 	// Ids that left the table while the route still serves them and that no

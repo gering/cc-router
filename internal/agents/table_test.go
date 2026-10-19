@@ -38,7 +38,7 @@ func TestPackagedTable(t *testing.T) {
 		names = append(names, r.Name)
 	}
 	// A literal expectation, not derived from the file it checks.
-	if got := strings.Join(names, " "); got != "grok sol terra luna astra" {
+	if got := strings.Join(names, " "); got != "grok sol terra luna astra opus" {
 		t.Fatalf("rows = %s", got)
 	}
 	// One Codex ladder in all four rows (fable/opus/sonnet/haiku =
@@ -49,6 +49,17 @@ func TestPackagedTable(t *testing.T) {
 			r.Sonnet != "gpt-5.6-terra" || r.Haiku != "gpt-6-luna" || r.MaxCtx != 372000 {
 			t.Errorf("%s row = %+v", r.Name, r)
 		}
+	}
+	// Anthropic's own ladder: every rung, and so the subagent slot (the
+	// primary), stays a claude- id — none may fall to a Codex or Grok model.
+	opus := rows[5]
+	for _, m := range opus.models() {
+		if !nativeID(m) {
+			t.Errorf("opus rung %s is outside the Anthropic family", m)
+		}
+	}
+	if opus.Fable != "claude-fable-5-1" || opus.Opus != "claude-opus-5-5" || opus.MaxCtx != 1000000 {
+		t.Errorf("opus row = %+v", opus)
 	}
 }
 
@@ -119,6 +130,11 @@ func TestResolveModel(t *testing.T) {
 		{"grok-9.9-experimental", "grok", "grok-9.9-experimental"},
 		{"grok", "grok", "grok"},             // no dash: the whole id is the family prefix
 		{"grok-build", "grok", "grok-build"}, // too short for the build alias: family fallback
+		// A pure lookup, for `--proxy <model>` as much as for resume: the
+		// rule that an Anthropic id resumes natively lives where resume
+		// infers, not here.
+		{"claude-sonnet-5-5", "opus", "claude-sonnet-5-5"},
+		{"claude-opus-5", "opus", "claude-opus-5"},
 	}
 	for _, c := range cases {
 		agent, model, err := table.ResolveModel(c.in)
@@ -133,7 +149,7 @@ func TestResolveModel(t *testing.T) {
 	// agent (kimi) is refused rather than remapped onto some row, so the
 	// resume path says it could not restore.
 	for _, in := range []string{"gpt-5.3-codex-spark", "gpt-7-sol", "gpt-6.1-sol-preview", "gpt-6.1-nova", "kimi-k3", "kimi-k3-256k",
-		"gpt-9.9-unknown", "claude-opus-5", "grok-4.6\tforged\trow", "grok-4.6\nforged", "grok-\x1b[2J", strings.Repeat("grok-4.6", 20)} {
+		"gpt-9.9-unknown", "grok-4.6\tforged\trow", "grok-4.6\nforged", "grok-\x1b[2J", strings.Repeat("grok-4.6", 20)} {
 		if _, _, err := table.ResolveModel(in); err == nil {
 			t.Errorf("%q resolved", in)
 		}

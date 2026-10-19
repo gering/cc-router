@@ -8,8 +8,8 @@
 # cc-harness-agents on PATH (install.sh links it).
 #
 # The terminal layer only: the transcript capture behind the resume-history
-# hint, and the herdr `script` skip. Flags (`--<agent>`, `--local`, `--yolo`,
-# `--opus` …), conflicts, the resume restore and routing are all
+# hint, and the herdr `script` skip. Flags (`--proxy`, `--local`, `--noproxy`,
+# `--yolo` …), conflicts, the resume restore and routing are all
 # `cc-harness-agents launch` — the same path the executable shim takes, so a
 # caller that never sources this file gets the same behaviour.
 
@@ -89,9 +89,10 @@ claude() {
       | tail -1 | sed -E 's/^claude --resume "(.*)"$/\1/') || true
     if [[ "$resume_id" =~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' ]]; then
       local resume_line="claude --resume \"$resume_id\"" flag
-      # Same rule for our own file: only option-shaped words reach history.
+      # Same rule for our own file: only option-shaped words reach history,
+      # a route's agent or model attached with `=`.
       for flag in ${(z)"$(<"$replay")"}; do
-        [[ "$flag" =~ '^--[A-Za-z0-9][A-Za-z0-9._-]*$' ]] && resume_line="$resume_line $flag"
+        [[ "$flag" =~ '^--[A-Za-z0-9][A-Za-z0-9._-]*(=[A-Za-z0-9][A-Za-z0-9._:-]*)?$' ]] && resume_line="$resume_line $flag"
       done
       print -s "$resume_line"
     fi
