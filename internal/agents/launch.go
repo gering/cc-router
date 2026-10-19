@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -325,8 +326,8 @@ func (a *App) launch(home string, args []string) error {
 		return err
 	}
 	// The table is read at most once, and only when a route value or an
-	// option could name an agent, or a resume needs it: a plain `claude` never
-	// loads it. An unreadable table knows no agent — a deprecated `--<agent>`
+	// option could name an agent, a resume needs it, or a settings file names
+	// a default model: a plain `claude` without one never loads it. An unreadable table knows no agent — a deprecated `--<agent>`
 	// reaches Claude, which rejects it, and a route value is refused.
 	var table *Table
 	loadTable := func() *Table {
@@ -411,7 +412,7 @@ func (a *App) launch(home string, args []string) error {
 	if p.noproxy {
 		// A session that ran routed stored its foreign model, and Claude
 		// re-applies it on resume: it would reach Anthropic as a foreign id.
-		p.accountDefault = p.accountDefault || p.resumeKind != noSelector && !p.nativeModel
+		p.accountDefault = p.resumeKind != noSelector && !p.nativeModel
 		// Inside a routed session the recipe is inherited; native is without it.
 		if routed {
 			env = unrouted(a.Env)
@@ -422,11 +423,10 @@ func (a *App) launch(home string, args []string) error {
 	// a native start would send to Anthropic. A resume restores its own
 	// model, and `--noproxy` pins the default for it; only a start that
 	// would use the setting is guarded. Inside a routed session the route
-	// stays chosen unless --noproxy dropped it. Claude takes an empty
-	// ANTHROPIC_MODEL as unset.
+	// stays chosen unless --noproxy dropped it.
 	if p.agent == "" && !p.nativeModel && !p.ownModel && (!routed || p.noproxy) &&
-		(p.resumeKind == noSelector || p.noproxy) && env.Get("ANTHROPIC_MODEL") == "" {
-		if file, model := a.foreignDefault(home, loadTable); file != "" {
+		(p.resumeKind == noSelector || p.noproxy) {
+		if file, model := a.foreignDefault(home, env, loadTable); file != "" {
 			p.accountDefault = true
 			fmt.Fprintf(a.Stderr, "claude: \"model\" in %s is %s, which only the gateway serves — starting on the Anthropic default (remove it there, or use --proxy %[2]s)\n",
 				oneLine(file), oneLine(model))
@@ -447,44 +447,57 @@ func (a *App) launch(home string, args []string) error {
 }
 
 // foreignDefault names the settings file whose "model" Claude would start
-// on, and that model, when the table routes it: an id only the gateway
-// serves. The files and their order are Claude's (2.1.304, observed where
-// the docs are silent), highest first: the project's local settings — in a
-// git checkout only the main checkout's root holds them, also for linked
-// worktrees and subdirectories — then the current directory's shared
-// settings, then the user's (CLAUDE_CONFIG_DIR or ~/.claude). Claude skips a
-// file it cannot read or parse, and so does this. An ANTHROPIC_MODEL in any
-// file's "env" outranks every "model" key. Only those two keys are read, by
-// their exact names, as Claude reads them; the settings are the user's and
-// never written here.
-func (a *App) foreignDefault(home string, table func() *Table) (file, model string) {
+// on, and that model, when the start goes to Anthropic and the table routes
+// the id: one only the gateway serves. The files and their order are
+// Claude's (2.1.304, observed where the docs are silent), highest first: the
+// project's local settings — in a git checkout only the main checkout's root
+// holds them, also for linked worktrees and subdirectories — then the
+// current directory's shared settings, then the user's (CLAUDE_CONFIG_DIR or
+// ~/.claude). Claude skips a file it cannot read or parse, and so does this.
+// ANTHROPIC_MODEL outranks every "model" key, and ANTHROPIC_BASE_URL points
+// the start away from Anthropic: either one, non-empty in the environment or
+// in the settings' merged "env", means no guard. Keys are matched exactly,
+// as Claude matches them; the settings are the user's and never written here.
+func (a *App) foreignDefault(home string, env *Env, table func() *Table) (file, model string) {
 	user := filepath.Join(home, ".claude")
-	if dir := a.Env.Get("CLAUDE_CONFIG_DIR"); dir != "" {
+	if dir := env.Get("CLAUDE_CONFIG_DIR"); dir != "" {
 		user = dir
 	}
 	files := []string{filepath.Join(user, "settings.json")}
 	if cwd, err := os.Getwd(); err == nil {
+		if real, err := filepath.EvalSymlinks(cwd); err == nil {
+			cwd = real
+		}
 		files = append([]string{
 			filepath.Join(localSettingsRoot(cwd), ".claude", "settings.local.json"),
 			filepath.Join(cwd, ".claude", "settings.json"),
 		}, files...)
 	}
+	overrides := map[string]string{}
+	for _, key := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_BASE_URL"} {
+		if v := env.Get(key); v != "" {
+			overrides[key] = v
+		}
+	}
 	for _, f := range files {
-		var keys map[string]json.RawMessage
-		if data, err := os.ReadFile(f); err != nil || json.Unmarshal(data, &keys) != nil {
+		var keys, fileEnv map[string]json.RawMessage
+		if data, err := readSmall(f); err != nil || json.Unmarshal(data, &keys) != nil {
 			continue
 		}
-		var env map[string]json.RawMessage
-		var envModel string
-		if json.Unmarshal(keys["env"], &env) == nil && json.Unmarshal(env["ANTHROPIC_MODEL"], &envModel) == nil && envModel != "" {
-			return "", ""
+		json.Unmarshal(keys["env"], &fileEnv)
+		// A higher file's value wins, an empty one included.
+		for _, key := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_BASE_URL"} {
+			var v string
+			if _, set := overrides[key]; !set && json.Unmarshal(fileEnv[key], &v) == nil {
+				overrides[key] = v
+			}
 		}
 		var m string
 		if file == "" && json.Unmarshal(keys["model"], &m) == nil && m != "" {
 			file, model = f, m
 		}
 	}
-	if file == "" || nativeID(model) {
+	if file == "" || overrides["ANTHROPIC_MODEL"] != "" || overrides["ANTHROPIC_BASE_URL"] != "" || nativeID(model) {
 		return "", ""
 	}
 	if _, _, err := table().ResolveModel(model); err != nil {
@@ -502,7 +515,7 @@ func localSettingsRoot(dir string) string {
 		if fi, err := os.Stat(dotgit); err == nil && fi.IsDir() {
 			return d
 		}
-		if data, err := os.ReadFile(dotgit); err == nil {
+		if data, err := readSmall(dotgit); err == nil {
 			gitdir, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir: ")
 			if !ok {
 				return d
@@ -510,7 +523,7 @@ func localSettingsRoot(dir string) string {
 			if !filepath.IsAbs(gitdir) {
 				gitdir = filepath.Join(d, gitdir)
 			}
-			common, err := os.ReadFile(filepath.Join(gitdir, "commondir"))
+			common, err := readSmall(filepath.Join(gitdir, "commondir"))
 			if err != nil {
 				return d // a submodule: its own checkout
 			}
@@ -524,6 +537,30 @@ func localSettingsRoot(dir string) string {
 			return dir
 		}
 	}
+}
+
+// readSmall reads a regular file of at most 1 MiB. A checkout can plant a
+// FIFO or a device where settings belong; opening one could block the launch
+// or read without end.
+func readSmall(path string) ([]byte, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s: not a regular file", path)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	const limit = 1 << 20
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err == nil && len(data) > limit {
+		err = fmt.Errorf("%s: larger than %d bytes", path, limit)
+	}
+	return data, err
 }
 
 // pinModel routes the exact model, not the agent's primary: exec exports the

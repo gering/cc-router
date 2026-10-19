@@ -20,6 +20,9 @@ TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/test-claude-wrapper.XXXXXX")
 
 # shellcheck source=tests/assert.sh disable=SC1091
 . "$(dirname "${BASH_SOURCE[0]}")/assert.sh"
+# A plain launch reads project settings from the current directory and its
+# main checkout: run outside any, so a developer's own settings never count.
+cd "$TMP_ROOT"
 RC=0
 OUT=""
 ERR=""
@@ -388,12 +391,14 @@ assert_eq $'--model\ndefault\nprompt' "$(< "$WRAPPER_CLAUDE_LOG")" "skipped like
 printf '{"env":{"ANTHROPIC_MODEL":"claude-sonnet-5-5"}}' > "$PROJECT/.claude/settings.local.json"
 run_zsh prompt
 assert_eq prompt "$(< "$WRAPPER_CLAUDE_LOG")" "an ANTHROPIC_MODEL in a settings env outranks the model key: no guard"
+run_capture env -i "${ROUTE_ENV[@]}" ANTHROPIC_BASE_URL=https://gateway.invalid "$SHIM" prompt
+assert_eq prompt "$(< "$WRAPPER_CLAUDE_LOG")" "a start aimed away from Anthropic is not guarded"
 if cmp -s "$SETTINGS" "$TMP_ROOT/settings.orig"; then
   pass "the settings file is never written"
 else
   fail "the settings file is never written"
 fi
-cd "$ROOT"
+cd "$TMP_ROOT"
 rm -rf "$CASE_HOME/.claude" "$PROJECT"
 
 # Inside a routed session the recipe is inherited, so a plain claude stays

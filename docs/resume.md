@@ -149,9 +149,10 @@ So a native start that would use the setting is guarded. If the effective
 naming the file and the key. It never edits the file: remove the key there, or
 use `--proxy <id>`.
 
-No guard when something else settles the model: `--model` (or a deprecated
-shorthand), a non-empty `ANTHROPIC_MODEL` in the environment or in any settings
-file's `env`, `--agent`, `--settings`, `--setting-sources`, `--from-pr`,
+No guard when something else settles the model or the endpoint: `--model` (or
+a deprecated shorthand), a non-empty `ANTHROPIC_MODEL` or `ANTHROPIC_BASE_URL`
+in the environment or in the settings' merged `env` (a higher file's value
+wins, an empty one included), `--agent`, `--settings`, `--setting-sources`, `--from-pr`,
 `--teleport`, a route chosen or restored, or a routed session (unless
 `--noproxy` leaves it). A resume restores its session's own model, so a plain
 `claude -c` is left alone; `claude -c --noproxy` already pins the default and
@@ -167,7 +168,9 @@ The effective setting is the first file that sets `model`, highest first:
 3. `settings.json` in `CLAUDE_CONFIG_DIR` (default `~/.claude`).
 
 The table is read only when one of them sets a model. A file that cannot be read
-or parsed is skipped, as Claude skips it. Keys are matched exactly (`Model` is
+or parsed is skipped, as Claude skips it; so is anything but a regular file of
+at most 1 MiB, which a checkout could plant to block the launch. A symlinked
+current directory is resolved first. Keys are matched exactly (`Model` is
 not `model`). Managed settings, which outrank all of these, are not read.
 
 Sources: the precedence, `CLAUDE_CONFIG_DIR` and `/model` writing the user

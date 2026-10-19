@@ -3,6 +3,7 @@ package agents
 import (
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
@@ -12,6 +13,8 @@ func TestForeignDefault(t *testing.T) {
 		user, shared, local string // "" = no such file
 		layout              string // "" (no git), "subdir" or "worktree" of a repository
 		configDir           bool   // the user file sits in CLAUDE_CONFIG_DIR
+		process             string // one KEY=VALUE of the process environment
+		fifo                bool   // the shared settings are a FIFO
 		wantFile, wantModel string
 		wantTable           bool
 	}{
@@ -32,6 +35,12 @@ func TestForeignDefault(t *testing.T) {
 		{name: "an invalid higher file is skipped", user: `{"model":"gpt-6-sol"}`, shared: `not json`, wantFile: "user", wantModel: "gpt-6-sol", wantTable: true},
 		{name: "env ANTHROPIC_MODEL outranks model", user: `{"model":"gpt-6-sol"}`, local: `{"env":{"ANTHROPIC_MODEL":"claude-haiku-4-5"}}`},
 		{name: "an empty env ANTHROPIC_MODEL is unset", user: `{"model":"gpt-6-sol","env":{"ANTHROPIC_MODEL":""}}`, wantFile: "user", wantModel: "gpt-6-sol", wantTable: true},
+		{name: "a higher empty env value shadows a lower one", user: `{"model":"gpt-6-sol","env":{"ANTHROPIC_MODEL":"claude-sonnet-5-5"}}`, local: `{"env":{"ANTHROPIC_MODEL":""}}`, wantFile: "user", wantModel: "gpt-6-sol", wantTable: true},
+		{name: "env ANTHROPIC_BASE_URL is not Anthropic", user: `{"model":"gpt-6-sol","env":{"ANTHROPIC_BASE_URL":"https://gw.example"}}`},
+		{name: "process ANTHROPIC_BASE_URL is not Anthropic", user: `{"model":"gpt-6-sol"}`, process: "ANTHROPIC_BASE_URL=https://gw.example"},
+		{name: "process ANTHROPIC_MODEL outranks", user: `{"model":"gpt-6-sol"}`, process: "ANTHROPIC_MODEL=claude-sonnet-5-5"},
+		{name: "an empty process ANTHROPIC_MODEL is unset", user: `{"model":"gpt-6-sol"}`, process: "ANTHROPIC_MODEL=", wantFile: "user", wantModel: "gpt-6-sol", wantTable: true},
+		{name: "a FIFO is skipped", user: `{"model":"gpt-6-sol"}`, fifo: true, wantFile: "user", wantModel: "gpt-6-sol", wantTable: true},
 		{name: "CLAUDE_CONFIG_DIR", user: `{"model":"gpt-6-sol"}`, configDir: true, wantFile: "user", wantModel: "gpt-6-sol", wantTable: true},
 		{name: "local settings from the repository root", layout: "subdir", local: `{"model":"gpt-6-sol"}`, wantFile: "local", wantModel: "gpt-6-sol", wantTable: true},
 		{name: "local settings from the main checkout", layout: "worktree", local: `{"model":"gpt-6-sol"}`, wantFile: "local", wantModel: "gpt-6-sol", wantTable: true},
@@ -60,6 +69,17 @@ func TestForeignDefault(t *testing.T) {
 			}
 			t.Chdir(cwd)
 			env := NewEnv(nil)
+			if c.process != "" {
+				env = NewEnv([]string{c.process})
+			}
+			if c.fifo {
+				if err := os.MkdirAll(filepath.Join(cwd, ".claude"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := syscall.Mkfifo(filepath.Join(cwd, ".claude", "settings.json"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
 			user := filepath.Join(home, ".claude", "settings.json")
 			if c.configDir {
 				dir := t.TempDir()
@@ -83,7 +103,7 @@ func TestForeignDefault(t *testing.T) {
 				loaded = true
 				return &Table{Rows: rows}
 			}
-			file, model := (&App{Env: env}).foreignDefault(home, table)
+			file, model := (&App{}).foreignDefault(home, env, table)
 			if file != files[c.wantFile] || model != c.wantModel {
 				t.Errorf("got (%q, %q), want (%q, %q)", file, model, files[c.wantFile], c.wantModel)
 			}
