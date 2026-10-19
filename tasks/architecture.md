@@ -132,7 +132,7 @@ Consequently:
   Astra is exported at 372k although it serves 900k: every rung is one
   `/model` away, and the ceiling is one number per session.
 - Switching provider means restarting, and
-  [`restore-routed-sessions.md`](restore-routed-sessions.md) is what makes a
+  [`restore-routed-sessions.md`](archive/restore-routed-sessions.md) is what makes a
   restart cost one command instead of a session.
 - A `--mixed` mode may be offered later: ceiling clamped to the minimum across
   providers (262k), tier slots on a neutral model, free switching. Honest about

@@ -7,10 +7,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The routing core `cc-harness-agents` is implemented here in Go
 (`cmd/cc-harness-agents`, `internal/agents`, table in `share/models.tsv`).
 Its `launch` owns `claude`'s command line, resume restore included; the wrapper
-(`share/claude.zsh`) and the POSIX shim (`cmd/claude-shim`) only call it. The
-interim resume bridge (`cmd/cc-harness-resume`, python3) covers sessions
-without a record. The statusline, `cliproxy-auth` and companion still live in
-the private `gering/dotfiles` repository and move later.
+(`share/claude.zsh`) and the POSIX shim (`cmd/claude-shim`) only call it;
+`record-session` writes the records it restores from. The interim resume
+bridge (`cmd/cc-harness-resume`, python3) covers sessions without a record.
+The statusline, quota helpers, `cliproxy-auth` and companion still live in the
+private `gering/dotfiles` repository and move later.
 
 - **`make check` is the gate** (gofmt/vet/staticcheck, shellcheck/shfmt,
   `zsh -n`, `go test -race`, `tests/run` — routing, wrapper/shim and resume
@@ -20,8 +21,8 @@ the private `gering/dotfiles` repository and move later.
   changes.
 - `tasks/architecture.md` holds the decisions: layout, language, distribution,
   quality gate, migration order. Read it before proposing structural changes.
-  `tasks/mission.md` is the extraction checklist,
-  `tasks/restore-routed-sessions.md` the first feature spec.
+  `tasks/mission.md` is the extraction checklist; finished specs are in
+  `tasks/archive/`.
 - Test counts for the not-yet-extracted suites in `tasks/mission.md` were read
   off dotfiles at `f0effff`. Re-count; never cite them as current.
 
