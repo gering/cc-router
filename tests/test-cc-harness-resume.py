@@ -509,12 +509,14 @@ class SidecarTests(Fixture):
         super().setUp()
         self.sessions = self.base / '.cache/cc-router/sessions'
 
-    def record(self, uuid=A, model='grok-4.6', cwd=None, **env):
-        """Feed one statusline render to record-session, as the statusline does."""
+    def record(self, uuid=A, model='grok-4.6', cwd=None, rendered_at=None, **env):
+        """Feed one statusline render to record-session, as the statusline does;
+        stamped with its render time (unix ms) when rendered_at is given."""
         payload = {'session_id': uuid, 'cwd': str(cwd or self.cwd), 'transcript_path': '/t/x.jsonl',
                    'workspace': {'current_dir': str(cwd or self.cwd), 'project_dir': str(cwd or self.cwd)},
                    'model': {'id': model, 'display_name': 'shown, never stored'}, 'cost': {'ignored': True}}
-        return subprocess.run([str(PKG / 'bin/cc-harness-agents'), 'record-session'], input=json.dumps(payload),
+        stamp = ['--rendered-at', str(rendered_at)] if rendered_at is not None else []
+        return subprocess.run([str(PKG / 'bin/cc-harness-agents'), 'record-session', *stamp], input=json.dumps(payload),
                               capture_output=True, text=True, env=self.env(**env))
 
     def sidecar(self, uuid=A, model='grok-4.6', agent='grok', route='remote', cwd=None, age=60, mode=0o600, **extra):
@@ -576,6 +578,18 @@ class SidecarTests(Fixture):
         data, _ = self.run_wrapper('--resume', A)
         self.assertEqual((data['agent'], data['model']), ('sol', 'gpt-5.6-terra'))
         self.assertEqual(data['pins'], {'CC_HARNESS_MODEL_SOL': 'gpt-5.6-terra'})
+
+    def test_a_late_writer_of_an_older_render_loses(self):
+        # The render before /model is written last: the newer render's model
+        # stays, and so does it after a resume restarts the session's clocks.
+        self.record(model='gpt-5.6-terra', rendered_at=2000, CC_ROUTER_AGENT='sol', CLIPROXY_ROUTE='remote')
+        self.assertEqual(self.record(model='gpt-6-sol', rendered_at=1000, CC_ROUTER_AGENT='sol',
+                                     CLIPROXY_ROUTE='remote').returncode, 0)
+        data, _ = self.run_wrapper('--resume', A)
+        self.assertEqual(data['model'], 'gpt-5.6-terra')
+        self.record(model='gpt-6-sol', rendered_at=3000, CC_ROUTER_AGENT='sol', CLIPROXY_ROUTE='remote')
+        data, _ = self.run_wrapper('--resume', A)
+        self.assertEqual(data['model'], 'gpt-6-sol')
 
     def test_record_without_marker_maps_its_model(self):
         # A session started before exec exported the marker: the route is still

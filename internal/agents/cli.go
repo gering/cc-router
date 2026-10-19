@@ -25,7 +25,7 @@ const usageText = `usage: cc-harness-agents list [--local] [--header|--no-header
        cc-harness-agents resolve-model <model-id>
        cc-harness-agents serves <model-id>
        cc-harness-agents launch [--replay-to <file>] -- <claude args…>
-       cc-harness-agents record-session < statusline.json
+       cc-harness-agents record-session [--rendered-at <unix-ms>] < statusline.json
 `
 
 // App is one invocation with every side effect injectable.

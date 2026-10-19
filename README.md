@@ -60,7 +60,7 @@ cc-harness-agents names
 cc-harness-agents resolve-model <model-id>
 cc-harness-agents serves <model-id>
 cc-harness-agents launch [--replay-to <file>] -- <claude args…>
-cc-harness-agents record-session < statusline.json
+cc-harness-agents record-session [--rendered-at <unix-ms>] < statusline.json
 ```
 
 `exec sol -- claude` probes the route, sets the routing environment and

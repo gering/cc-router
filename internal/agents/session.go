@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -28,6 +29,10 @@ type sessionRecord struct {
 	Route          string `json:"route,omitempty"` // remote | local, empty when native
 	Model          string `json:"model"`
 	UpdatedAt      int64  `json:"updated_at"`
+	// RenderedAt orders the writers of one session (unix ms). The statusline
+	// stamps each render before it detaches record-session, so a slow writer
+	// of an older render cannot replace a newer record. Zero: not stamped.
+	RenderedAt int64 `json:"rendered_at,omitempty"`
 }
 
 const (
@@ -39,6 +44,9 @@ const (
 	// producer cannot make the statusline buffer without bound.
 	maxStatuslineInput = 1 << 20
 	maxRecordSize      = 64 << 10
+	// The lock is held for one small read and a rename; a writer that cannot
+	// take it this long gives up rather than pile up behind a hung one.
+	lockWait = time.Second
 )
 
 var sessionIDRe = regexp.MustCompile(`^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$`)
@@ -75,7 +83,21 @@ func (r *sessionRecord) validate() error {
 // session's sidecar. Local, bounded and atomic, and never the network: the
 // statusline calls it on every render.
 func (a *App) recordSession(home string, args []string, stdin io.Reader) error {
-	if len(args) != 0 {
+	var renderedAt int64
+	switch {
+	case len(args) == 0:
+	case len(args) == 2 && args[0] == "--rendered-at":
+		// No clock at the caller: an empty stamp is an unstamped render, so
+		// one command line works whether or not the stamp could be taken.
+		if args[1] == "" {
+			break
+		}
+		n, err := strconv.ParseInt(args[1], 10, 64)
+		if err != nil || n <= 0 {
+			return usageError()
+		}
+		renderedAt = n
+	default:
 		return usageError()
 	}
 	var in struct {
@@ -106,12 +128,13 @@ func (a *App) recordSession(home string, args []string, stdin io.Reader) error {
 		cwd = real
 	}
 	rec := sessionRecord{
-		SessionID: in.SessionID,
-		Cwd:       cwd,
-		Model:     in.Model.ID,
-		Agent:     a.Env.Get(keyAgent),
-		Route:     a.Env.Get("CLIPROXY_ROUTE"),
-		UpdatedAt: a.Now().Unix(),
+		SessionID:  in.SessionID,
+		Cwd:        cwd,
+		Model:      in.Model.ID,
+		Agent:      a.Env.Get(keyAgent),
+		Route:      a.Env.Get("CLIPROXY_ROUTE"),
+		UpdatedAt:  a.Now().Unix(),
+		RenderedAt: renderedAt,
 	}
 	// Metadata only, never opened: kept for a human reading the cache.
 	if filepath.IsAbs(in.TranscriptPath) && !hasControl(in.TranscriptPath) {
@@ -130,17 +153,78 @@ func (a *App) recordSession(home string, args []string, stdin io.Reader) error {
 	// Lower-case on disk, as the lookup spells it: a filesystem that keeps
 	// case would otherwise miss a record Claude reported in upper case.
 	path := filepath.Join(dir, strings.ToLower(rec.SessionID)+".json")
-	_, statErr := os.Lstat(path)
-	out, _ := json.Marshal(rec)
-	if err := writeAtomic(dir, path, append(out, '\n')); err != nil {
-		return fail(exitCapability, "record-session: cannot write %s", path)
+	created, err := writeRecord(dir, path, rec, a.Now)
+	if err != nil {
+		return err
 	}
 	// A new session is rare next to statusline renders, so pruning there
-	// keeps the cache bounded without a cost on every render.
-	if errors.Is(statErr, fs.ErrNotExist) {
+	// keeps the cache bounded without a cost on every render. Outside the
+	// lock: a slow scan must not make a newer render's writer give up.
+	if created {
 		pruneSessions(dir, a.Now())
 	}
 	return nil
+}
+
+// writeRecord replaces the session's record under the directory lock, unless
+// a newer render already wrote it. created reports a session recorded for the
+// first time.
+func writeRecord(dir, path string, rec sessionRecord, now func() time.Time) (created bool, err error) {
+	unlock, err := lockDir(dir)
+	if err != nil {
+		return false, fail(exitCapability, "record-session: cannot lock %s", dir)
+	}
+	defer unlock()
+	_, statErr := os.Lstat(path)
+	// The clock is read under the lock: read before it, a render written
+	// while this writer waited would look like one from the future.
+	stored := storedRenderedAt(dir, filepath.Base(path), now())
+	switch {
+	case rec.RenderedAt == 0:
+		// Unstamped: write, but keep the stored order rather than reset it.
+		rec.RenderedAt = stored
+	case stored > rec.RenderedAt:
+		return false, nil // a newer render already wrote this session
+	}
+	out, _ := json.Marshal(rec)
+	if err := writeAtomic(dir, path, append(out, '\n')); err != nil {
+		return false, fail(exitCapability, "record-session: cannot write %s", path)
+	}
+	return errors.Is(statErr, fs.ErrNotExist), nil
+}
+
+// lockDir takes an exclusive flock on the sessions directory itself, so there
+// is no lock file to create or prune. It polls instead of blocking, bounded by
+// lockWait; closing the descriptor releases the lock.
+func lockDir(dir string) (unlock func(), err error) {
+	f, err := os.Open(dir)
+	if err != nil {
+		return nil, err
+	}
+	deadline := time.Now().Add(lockWait)
+	for {
+		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			return func() { f.Close() }, nil
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) || time.Now().After(deadline) {
+			f.Close()
+			return nil, err
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// storedRenderedAt is the stamp of the record name in dir; zero — replaced by
+// any render — when there is none, it predates stamping, or a resume would
+// ignore it. A stamp ahead of now orders nothing: the clock stepped back
+// since, and honouring it would drop every render until the clock caught up.
+func storedRenderedAt(dir, name string, now time.Time) int64 {
+	rec, ok := sessionLookup{dir: dir, stderr: io.Discard, now: now}.read(name)
+	if !ok || rec.RenderedAt > now.UnixMilli() {
+		return 0
+	}
+	return rec.RenderedAt
 }
 
 // writeAtomic replaces path with data through a 0600 temp file and a rename,
