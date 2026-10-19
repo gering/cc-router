@@ -8,3 +8,4 @@
 - 2026-10-17 · PR #11 (merged @ a662d23) · migrate-claude-wrapper — Migrate the claude wrapper
 - 2026-10-18 · PR #13 (merged @ 844d8f9) · restore-routed-sessions — Restore routed Claude sessions through an executable shim
 - 2026-10-19 · PR #14 (merged @ 6b2222e) · list-note-and-doc-pointers — List note and doc pointers
+- 2026-10-19 · PR #16 (merged @ e4b0ddf) · record-session-ordering — Record-session ordering
