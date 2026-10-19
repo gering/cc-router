@@ -697,7 +697,10 @@ assert_contains "$OUT" $'MODEL=gpt-5.6-terra\nSUBAGENT=gpt-5.6-terra\nFABLE=gpt-
 run_capture env -i "${REMOTE_ENV[@]}" FAKE_CURL_BODY="$CODEX_CATALOG" \
   "$HELPER" list --no-header
 assert_contains "$OUT" $'cc-harness:sol\tgpt-6.1-sol\tyes\tauto-selected gpt-6.1-sol (candidates: gpt-6.1-sol gpt-6-sol; last-known: gpt-6-sol)' "list shows the newest served sol with the auto-selected note"
-assert_contains "$OUT" $'cc-harness:luna\tgpt-6-luna\tyes\tauto-selected gpt-6.1-sol' "a row whose primary stayed still names the moved rung"
+for row in terra:gpt-5.6-terra luna:gpt-6-luna astra:gpt-6-astra; do
+  LINE="$(printf '%s\n' "$OUT" | grep "^cc-harness:${row%%:*}"$'\t' || true)"
+  assert_eq "cc-harness:${row%%:*}"$'\t'"${row#*:}"$'\tyes\topus rung auto-selected gpt-6.1-sol (candidates: gpt-6.1-sol gpt-6-sol; last-known: gpt-6-sol); context window 372000 inherited from major 6, not measured' "$LINE" "the ${row%%:*} row names the moved opus rung, not a selection of its own"
+done
 
 # Mixed minors: each role resolves on its own, and a first gpt-6 Terra
 # replaces the 5.6 one.

@@ -15,8 +15,8 @@ credentials, only a revocable per-machine key.
 
 > **Status: early.** The routing core, `cc-harness-agents` (Go), the
 > interactive `claude` wrapper, the executable shim and session resume are
-> here. The statusline
-> and the login tooling still live in the author's dotfiles and move next — see
+> here. The statusline, its quota helpers, the login tooling (`cliproxy-auth`)
+> and the companion still live in the author's dotfiles and move next — see
 > [`tasks/mission.md`](tasks/mission.md) and [`tasks/architecture.md`](tasks/architecture.md).
 
 ## Install

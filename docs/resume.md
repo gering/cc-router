@@ -262,9 +262,9 @@ Calling the native binary by absolute path deliberately bypasses all of this.
 - Named resume searches and the interactive picker cannot choose routing ahead of
   time, because the conversation is not known until after the pick.
 
-The bridge is interim: session records replace it as the primary source
-([`tasks/restore-routed-sessions.md`](../tasks/restore-routed-sessions.md)), and
-it keeps these regression cases until it goes.
+The bridge is interim: session records are now the primary source
+([`tasks/archive/restore-routed-sessions.md`](../tasks/archive/restore-routed-sessions.md)),
+and it keeps these regression cases until it goes.
 
 ## Testing
 
