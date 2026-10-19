@@ -212,14 +212,18 @@ func ParseTable(data []byte) ([]Row, error) {
 	return rows, nil
 }
 
+// tierNames labels the tiers in order; it sizes them, so a slot without a
+// label does not compile.
+var tierNames = [...]string{"fable", "opus", "sonnet", "haiku"}
+
 // tiers are the picker slots a user can reach with /model, top first; models
 // adds the primary. Every place that exports, validates or matches the ladder
-// reads it from here, so a later slot cannot be half-wired; tierNames labels
-// them in the same order.
-func (r Row) tiers() []string  { return []string{r.Fable, r.Opus, r.Sonnet, r.Haiku} }
+// reads it from here, so a later slot cannot be half-wired.
+func (r Row) tiers() []string {
+	t := [len(tierNames)]string{r.Fable, r.Opus, r.Sonnet, r.Haiku}
+	return t[:]
+}
 func (r Row) models() []string { return append([]string{r.Model}, r.tiers()...) }
-
-var tierNames = []string{"fable", "opus", "sonnet", "haiku"}
 
 // rung names the tiers that carry id, e.g. "opus" or "fable/opus".
 func (r Row) rung(id string) string {

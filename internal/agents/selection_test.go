@@ -114,6 +114,14 @@ func TestCodexDiscovery(t *testing.T) {
 	if _, note := codexLadder(t, "luna", "gpt-6.1-sol"); note != "opus rung auto-selected gpt-6.1-sol (candidates: gpt-6.1-sol gpt-6-sol; last-known: gpt-6-sol); context window 372000 inherited from major 6, not measured" {
 		t.Errorf("luna note = %q", note)
 	}
+	// A primary below a newer rung of its own class still notes its own move.
+	row := packagedRow(t, "sol")
+	row.Opus = "gpt-6.1-sol"
+	cat := &Catalog{State: catalogValid, IDs: strings.Fields("gpt-6-astra gpt-6.1-sol gpt-6.2-sol gpt-5.6-terra gpt-6-luna"), Context: map[string]int{}}
+	sel := (&selector{env: NewEnv(nil), cat: cat}).Resolve(row)
+	if sel.Model != "gpt-6.1-sol" || !strings.Contains(sel.Note, "; auto-selected gpt-6.1-sol (candidates: gpt-6.2-sol gpt-6.1-sol; last-known: gpt-6-sol)") {
+		t.Errorf("primary below opus = %s %q", sel.Model, sel.Note)
+	}
 }
 
 func TestCodexResume(t *testing.T) {
