@@ -116,6 +116,13 @@ restore. An Anthropic (`claude-*`) model id resumes natively unless the
 session's record names its agent: the opus row never claims a native session
 from its transcript alone. Precedence, the record's location, troubleshooting and how to turn it
 off: [`docs/resume.md`](docs/resume.md).
+A `/model` switch inside a routed session is saved by Claude Code as the
+default for new sessions. A native start that would use it — plain `claude` or
+`--noproxy` with nothing else settling the model (`--model`, `ANTHROPIC_MODEL`,
+`--agent`, `--settings`, `--setting-sources`) — starts on the Anthropic default
+instead when that saved id is one the table routes, and says which settings
+file holds it; the file itself is never touched
+([`docs/resume.md`](docs/resume.md#a-foreign-default-model)).
 
 ## Configuration
 

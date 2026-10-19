@@ -135,6 +135,51 @@ shorthands (`claude -c --opus` = `--model opus`) still work for the
 transition, with a deprecation notice, and never route — not even `--opus`,
 which shares its name with the opus row (`--proxy opus` is the gateway).
 
+## A foreign default model
+
+Claude Code saves an in-session `/model` as the default for new sessions
+(the `model` key of the user settings). Inside a routed session that saves a
+foreign id — `/model gpt-5.6-terra` — which the routed session never notices,
+because `ANTHROPIC_MODEL` outranks the setting. The next native start would ask
+Anthropic for it and fail (`unrecognized_model`).
+
+So a native start that would use the setting is guarded. If the effective
+`model` setting is an id the table routes (the `resolve-model` mapping; a
+`claude-*` id never counts), `launch` pins `--model default` and prints one line
+naming the file and the key. It never edits the file: remove the key there, or
+use `--proxy <id>`.
+
+No guard when something else settles the model: `--model` (or a deprecated
+shorthand), a non-empty `ANTHROPIC_MODEL` in the environment or in any settings
+file's `env`, `--agent`, `--settings`, `--setting-sources`, `--from-pr`,
+`--teleport`, a route chosen or restored, or a routed session (unless
+`--noproxy` leaves it). A resume restores its session's own model, so a plain
+`claude -c` is left alone; `claude -c --noproxy` already pins the default and
+adds the notice.
+
+The effective setting is the first file that sets `model`, highest first:
+
+1. `.claude/settings.local.json` in the root of the **main checkout** — in a git
+   repository Claude reads it from there only, also from a subdirectory or a
+   linked worktree, whose own copy it ignores; outside one, from the current
+   directory;
+2. `.claude/settings.json` in the current directory (not the repository root);
+3. `settings.json` in `CLAUDE_CONFIG_DIR` (default `~/.claude`).
+
+The table is read only when one of them sets a model. A file that cannot be read
+or parsed is skipped, as Claude skips it. Keys are matched exactly (`Model` is
+not `model`). Managed settings, which outrank all of these, are not read.
+
+Sources: the precedence, `CLAUDE_CONFIG_DIR` and `/model` writing the user
+settings come from the [settings](https://code.claude.com/docs/en/settings) and
+[model configuration](https://code.claude.com/docs/en/model-config) docs. The
+rest was observed with Claude Code 2.1.304, where the docs are silent:
+`--model default` outranks a foreign `model` setting and runs the account
+default, also ahead of subcommands; where each project file is read from; that
+an unparsable file is skipped; that `env.ANTHROPIC_MODEL` outranks `model`;
+that an empty `ANTHROPIC_MODEL` counts as unset; and that the key is
+case-sensitive.
+
 ## Disabling
 
 - One launch: pass an explicit choice (`--noproxy`, `--model …`, `--proxy sol`).

@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -37,6 +38,9 @@ var (
 	// habit never silently moves a session onto the gateway — even where a
 	// row (opus) shares the name.
 	nativeShorthands = setOf("--fable", "--opus", "--sonnet", "--haiku")
+	// Options that settle the model another way: an agent definition, the
+	// caller's own settings sources, or a session they resume.
+	modelSources = setOf("--agent", "--settings", "--setting-sources", "--from-pr", "--teleport")
 )
 
 func setOf(items ...string) map[string]bool {
@@ -69,6 +73,10 @@ type launchPlan struct {
 	agent         string // the resolved agent, from the caller's choice or a restore
 	nativeModel   bool   // --model or a deprecated native shorthand
 	nativeFlag    string // the shorthand, for conflicts and its notice
+	ownModel      bool   // a modelSources option
+	// Start on the account default (`--model default`): what Claude would
+	// otherwise pick is a foreign id it would send to Anthropic.
+	accountDefault bool
 	// The resume selector — its kind, --resume's value, and the indices of
 	// its option and value in args (-1 when absent). A kind, not a sentinel
 	// string: `--resume continue` names a session, it is not -c.
@@ -143,6 +151,9 @@ func parseLaunch(argv []string, isAgent, routes func(string) bool) (*launchPlan,
 			continue
 		}
 		optvalPending, variadicPending, optvalIsResume = false, false, false
+		if name, _, _ := strings.Cut(arg, "="); modelSources[name] {
+			p.ownModel = true
+		}
 		switch {
 		case arg == "-c" || arg == "--continue":
 			p.args = append(p.args, arg)
@@ -400,13 +411,29 @@ func (a *App) launch(home string, args []string) error {
 	if p.noproxy {
 		// A session that ran routed stored its foreign model, and Claude
 		// re-applies it on resume: it would reach Anthropic as a foreign id.
-		if p.resumeKind != noSelector && !p.nativeModel {
-			p.args = append([]string{"--model", "default"}, p.args...)
-		}
+		p.accountDefault = p.accountDefault || p.resumeKind != noSelector && !p.nativeModel
 		// Inside a routed session the recipe is inherited; native is without it.
 		if routed {
 			env = unrouted(a.Env)
 		}
+	}
+	// Claude saves an in-session `/model` as the default for new sessions,
+	// so one switch inside a routed session leaves a foreign id behind that
+	// a native start would send to Anthropic. A resume restores its own
+	// model, and `--noproxy` pins the default for it; only a start that
+	// would use the setting is guarded. Inside a routed session the route
+	// stays chosen unless --noproxy dropped it. Claude takes an empty
+	// ANTHROPIC_MODEL as unset.
+	if p.agent == "" && !p.nativeModel && !p.ownModel && (!routed || p.noproxy) &&
+		(p.resumeKind == noSelector || p.noproxy) && env.Get("ANTHROPIC_MODEL") == "" {
+		if file, model := a.foreignDefault(home, loadTable); file != "" {
+			p.accountDefault = true
+			fmt.Fprintf(a.Stderr, "claude: \"model\" in %s is %s, which only the gateway serves — starting on the Anthropic default (remove it there, or use --proxy %[2]s)\n",
+				oneLine(file), oneLine(model))
+		}
+	}
+	if p.accountDefault {
+		p.args = append([]string{"--model", "default"}, p.args...)
 	}
 	if replayTo != "" {
 		// Best effort: the hint is a convenience, the launch is not.
@@ -417,6 +444,86 @@ func (a *App) launch(home string, args []string) error {
 		return a.replace(argv, env)
 	}
 	return a.routed(home, p.agent, p.local || p.restoredLocal, argv)
+}
+
+// foreignDefault names the settings file whose "model" Claude would start
+// on, and that model, when the table routes it: an id only the gateway
+// serves. The files and their order are Claude's (2.1.304, observed where
+// the docs are silent), highest first: the project's local settings — in a
+// git checkout only the main checkout's root holds them, also for linked
+// worktrees and subdirectories — then the current directory's shared
+// settings, then the user's (CLAUDE_CONFIG_DIR or ~/.claude). Claude skips a
+// file it cannot read or parse, and so does this. An ANTHROPIC_MODEL in any
+// file's "env" outranks every "model" key. Only those two keys are read, by
+// their exact names, as Claude reads them; the settings are the user's and
+// never written here.
+func (a *App) foreignDefault(home string, table func() *Table) (file, model string) {
+	user := filepath.Join(home, ".claude")
+	if dir := a.Env.Get("CLAUDE_CONFIG_DIR"); dir != "" {
+		user = dir
+	}
+	files := []string{filepath.Join(user, "settings.json")}
+	if cwd, err := os.Getwd(); err == nil {
+		files = append([]string{
+			filepath.Join(localSettingsRoot(cwd), ".claude", "settings.local.json"),
+			filepath.Join(cwd, ".claude", "settings.json"),
+		}, files...)
+	}
+	for _, f := range files {
+		var keys map[string]json.RawMessage
+		if data, err := os.ReadFile(f); err != nil || json.Unmarshal(data, &keys) != nil {
+			continue
+		}
+		var env map[string]json.RawMessage
+		var envModel string
+		if json.Unmarshal(keys["env"], &env) == nil && json.Unmarshal(env["ANTHROPIC_MODEL"], &envModel) == nil && envModel != "" {
+			return "", ""
+		}
+		var m string
+		if file == "" && json.Unmarshal(keys["model"], &m) == nil && m != "" {
+			file, model = f, m
+		}
+	}
+	if file == "" || nativeID(model) {
+		return "", ""
+	}
+	if _, _, err := table().ResolveModel(model); err != nil {
+		return "", ""
+	}
+	return file, model
+}
+
+// localSettingsRoot is where Claude looks for .claude/settings.local.json:
+// the main checkout of the git repository dir is in — found through a
+// linked worktree's .git file and its commondir — or dir itself outside one.
+func localSettingsRoot(dir string) string {
+	for d := dir; ; d = filepath.Dir(d) {
+		dotgit := filepath.Join(d, ".git")
+		if fi, err := os.Stat(dotgit); err == nil && fi.IsDir() {
+			return d
+		}
+		if data, err := os.ReadFile(dotgit); err == nil {
+			gitdir, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir: ")
+			if !ok {
+				return d
+			}
+			if !filepath.IsAbs(gitdir) {
+				gitdir = filepath.Join(d, gitdir)
+			}
+			common, err := os.ReadFile(filepath.Join(gitdir, "commondir"))
+			if err != nil {
+				return d // a submodule: its own checkout
+			}
+			c := strings.TrimSpace(string(common))
+			if !filepath.IsAbs(c) {
+				c = filepath.Join(gitdir, c)
+			}
+			return filepath.Dir(c)
+		}
+		if filepath.Dir(d) == d {
+			return dir
+		}
+	}
 }
 
 // pinModel routes the exact model, not the agent's primary: exec exports the
@@ -493,7 +600,7 @@ func (a *App) restore(home string, p *launchPlan, table func() *Table) error {
 		// The session DID run on a foreign model nothing routes any more.
 		// Claude re-applies a session's stored model on resume, so leaving it
 		// alone would send a foreign id to Anthropic. Why is already on stderr.
-		p.args = append([]string{"--model", "default"}, p.args...)
+		p.accountDefault = true
 		fmt.Fprintln(a.Stderr, "claude: could not restore this session's foreign model; continuing with normal Anthropic defaults")
 	}
 	// resumeUnknown: cannot tell (no session, the picker, nothing recorded) —

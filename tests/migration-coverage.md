@@ -7,7 +7,7 @@ the deltas are summarized below).
 
 Counts are **assertion call sites**, not executed assertions: loops and
 `assert_secret_safe` (three checks) expand at run time. The routing suite here
-runs 479 assertions (`tests/run`), the wrapper suite 146.
+runs 479 assertions (`tests/run`), the wrapper suite 180.
 
 | Disposition | Sites |
 |---|---|
