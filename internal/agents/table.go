@@ -214,9 +214,23 @@ func ParseTable(data []byte) ([]Row, error) {
 
 // tiers are the picker slots a user can reach with /model, top first; models
 // adds the primary. Every place that exports, validates or matches the ladder
-// reads it from here, so a later slot cannot be half-wired.
+// reads it from here, so a later slot cannot be half-wired; tierNames labels
+// them in the same order.
 func (r Row) tiers() []string  { return []string{r.Fable, r.Opus, r.Sonnet, r.Haiku} }
 func (r Row) models() []string { return append([]string{r.Model}, r.tiers()...) }
+
+var tierNames = []string{"fable", "opus", "sonnet", "haiku"}
+
+// rung names the tiers that carry id, e.g. "opus" or "fable/opus".
+func (r Row) rung(id string) string {
+	var names []string
+	for i, m := range r.tiers() {
+		if m == id {
+			names = append(names, tierNames[i])
+		}
+	}
+	return strings.Join(names, "/")
+}
 
 // Find returns the row for a bare or namespaced agent name.
 func (t *Table) Find(name string) (Row, bool) {

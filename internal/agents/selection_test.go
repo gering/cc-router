@@ -110,6 +110,10 @@ func TestCodexDiscovery(t *testing.T) {
 	if _, note := codexLadder(t, "sol", "gpt-6.1-sol"); note != "auto-selected gpt-6.1-sol (candidates: gpt-6.1-sol gpt-6-sol; last-known: gpt-6-sol); context window 372000 inherited from major 6, not measured" {
 		t.Errorf("note = %q", note)
 	}
+	// Another row's primary stayed: the note names the rung that moved.
+	if _, note := codexLadder(t, "luna", "gpt-6.1-sol"); note != "opus rung auto-selected gpt-6.1-sol (candidates: gpt-6.1-sol gpt-6-sol; last-known: gpt-6-sol); context window 372000 inherited from major 6, not measured" {
+		t.Errorf("luna note = %q", note)
+	}
 }
 
 func TestCodexResume(t *testing.T) {
@@ -136,7 +140,7 @@ func TestCodexResume(t *testing.T) {
 	for _, pinTo := range []string{"gpt-6-sol", "gpt-6.1-sol"} {
 		sel := (&selector{env: NewEnv([]string{"CC_HARNESS_MODEL_SOL=" + pinTo}), cat: retired}).Resolve(sol)
 		got := sel.Apply(sol)
-		if got.Model != pinTo || got.Opus != pinTo || got.Sonnet != "gpt-6-terra" || got.MaxCtx != 372000 || !strings.Contains(sel.Note, "auto-selected gpt-6-terra") {
+		if got.Model != pinTo || got.Opus != pinTo || got.Sonnet != "gpt-6-terra" || got.MaxCtx != 372000 || !strings.Contains(sel.Note, "sonnet rung auto-selected gpt-6-terra") {
 			t.Errorf("%s resume, terra retired = %+v %q", pinTo, got, sel.Note)
 		}
 	}

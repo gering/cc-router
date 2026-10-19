@@ -497,7 +497,13 @@ func (s *selector) place(r Row, ids []string, ceiling *int, moves map[string]str
 			*ceiling = ctx
 		}
 		if i == 0 && (pick != id || note != "") {
-			notes = append(notes, fmt.Sprintf("auto-selected %s (candidates: %s; last-known: %s)%s", pick, s.candidates(r.Cred, cls), id, note))
+			// A class other than the primary's moved a rung, not the row:
+			// the note says which, so it never reads as the row's model.
+			subject := ""
+			if id != r.Model {
+				subject = r.rung(id) + " rung "
+			}
+			notes = append(notes, fmt.Sprintf("%sauto-selected %s (candidates: %s; last-known: %s)%s", subject, pick, s.candidates(r.Cred, cls), id, note))
 		}
 		below, bound = pick, *ceiling
 	}
