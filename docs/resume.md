@@ -31,7 +31,8 @@ to `cc-harness-agents record-session`, which writes one small record per session
 ```
 ${XDG_CACHE_HOME:-~/.cache}/cc-router/sessions/<session-id>.json
 {"session_id":"…","cwd":"/path/started/in","transcript_path":"…",
- "agent":"sol","route":"remote","model":"gpt-5.6-terra","updated_at":1786435200}
+ "agent":"sol","route":"remote","model":"gpt-5.6-terra","updated_at":1786435200,
+ "rendered_at":1786435200123}
 ```
 
 `agent` is `CC_ROUTER_AGENT`, which `exec` exports (non-secret, the row name);
@@ -40,9 +41,26 @@ ${XDG_CACHE_HOME:-~/.cache}/cc-router/sessions/<session-id>.json
 before the marker existed has a route but no agent, and resolves through the
 table's own mapping (`resolve-model`). A native session records only its model.
 
+`rendered_at` orders the writers. The statusline runs `record-session`
+detached on every render, so a slow writer of an older render can still be
+running when a newer one has written — after a `/model` switch, the old model
+would win if the session exits before the next render. The statusline stamps
+each render (unix ms, `--rendered-at`) *before* it detaches, and
+`record-session` replaces a record only with a render that is not older,
+reading and comparing under an exclusive lock on the sessions directory. The
+render time is the wall clock rather than a counter from the JSON:
+`cost.total_duration_ms` carries over a resume only when the transcript holds
+Claude Code's cost state, which it writes on a clean exit — after a crash it
+starts again at zero. A stored stamp ahead of the clock (the clock stepped
+back) orders nothing. An unstamped writer always writes and keeps the stored
+stamp, and a record without `rendered_at` counts as older than any stamped
+render, so records written before the stamp existed restore and update as
+before.
+
 The record never holds credentials, headers, prompts or transcript text. The
 directory is `0700`, files are `0600`, written through a temp file and a rename;
-`record-session` reads stdin only, never the network, and prunes records idle
+`record-session` reads stdin and the session's own record, never the network,
+waits at most a second for the directory lock, and prunes records idle
 for 30 days whenever a new session is first recorded; a record that old is
 never restored, pruned or not. On read, a record that is
 not ours (another owner, group/other bits, a symlink), not valid JSON, carries
@@ -191,8 +209,16 @@ native launcher on `PATH`. Records start with the statusline hook:
 ```sh
 # in your statusline script, which receives Claude Code's JSON on stdin
 input=$(cat)
-printf '%s' "$input" | cc-harness-agents record-session 2>/dev/null &
+# Stamp before detaching: the stamp orders this render's writer against later ones.
+rendered_at=$(perl -MTime::HiRes=time -e 'printf "%d", time * 1000')
+printf '%s' "$input" | cc-harness-agents record-session --rendered-at "$rendered_at" 2>/dev/null &
 ```
+
+The stamp needs a millisecond clock; macOS `bash` 3.2 has none, hence `perl`
+(any source of unix milliseconds will do). An empty stamp — no clock — is
+taken as none: the record is then written unordered, as before. Upgrade the
+binary before the statusline — an older `record-session` refuses the flag,
+and an older `launch` ignores a record that carries `rendered_at`.
 
 Calling the native binary by absolute path deliberately bypasses all of this.
 

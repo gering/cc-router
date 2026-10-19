@@ -108,7 +108,8 @@ the helper" became "never routes and reaches Claude unchanged"; and a missing
 helper is now refused instead of launching unparsed. Added: the shim (direct
 launch, no lingering process, exit status, link resolution, recursion and
 missing-launcher refusals), the `CC_ROUTER_AGENT` marker in both routes, and
-the session-record cases in `tests/test-cc-harness-resume.py` (`SidecarTests`).
+the session-record cases in `tests/test-cc-harness-resume.py` (`SidecarTests`),
+including the render-order case (a late writer of an older render loses).
 
 | Upstream line | Assertion | Here |
 |---|---|---|
