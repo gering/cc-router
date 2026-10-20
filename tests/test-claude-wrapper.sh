@@ -20,6 +20,9 @@ TMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/test-claude-wrapper.XXXXXX")
 
 # shellcheck source=tests/assert.sh disable=SC1091
 . "$(dirname "${BASH_SOURCE[0]}")/assert.sh"
+# A plain launch reads project settings from the current directory and its
+# main checkout: run outside any, so a developer's own settings never count.
+cd "$TMP_ROOT"
 RC=0
 OUT=""
 ERR=""
@@ -328,6 +331,75 @@ assert_eq $'--model\ndefault\n--resume\n12345678-1234-1234-1234-123456789abc' "$
 run_zsh -c --noproxy --model opus
 assert_eq $'-c\n--model\nopus' "$(< "$WRAPPER_CLAUDE_LOG")" "an explicit --model is the native model instead"
 rm -rf "$CASE_HOME/.cache/cc-router"
+
+# `/model` inside a routed session saves the foreign id as Claude's default
+# for new sessions. A native start that would use it starts on the account
+# default instead, with one notice, and never touches the file.
+SETTINGS="$CASE_HOME/.claude/settings.json"
+PROJECT="$TMP_ROOT/project"
+mkdir -p "$CASE_HOME/.claude" "$PROJECT/.claude"
+printf '{"model":"gpt-5.6-terra","theme":"dark"}' > "$SETTINGS"
+cp "$SETTINGS" "$TMP_ROOT/settings.orig"
+cd "$PROJECT"
+# The notice names the cleaned path; TMPDIR may end in a slash.
+guard_notice="\"model\" in ${SETTINGS//\/\///} is gpt-5.6-terra, which only the gateway serves"
+run_zsh prompt
+assert_eq 0 "$RC" "a foreign default still launches"
+assert_eq '' "$(routed)" "natively"
+assert_eq $'--model\ndefault\nprompt' "$(< "$WRAPPER_CLAUDE_LOG")" "on the account default"
+assert_contains "$ERR" "$guard_notice" "naming the file and the key"
+assert_eq 1 "$(grep -c 'only the gateway serves' <<< "$ERR")" "once"
+run_capture env -i "${ROUTE_ENV[@]}" "$SHIM" prompt
+assert_eq $'--model\ndefault\nprompt' "$(< "$WRAPPER_CLAUDE_LOG")" "the shim guards the same start"
+assert_contains "$ERR" "$guard_notice" "with the same notice"
+run_zsh -c --noproxy
+assert_eq $'--model\ndefault\n-c' "$(< "$WRAPPER_CLAUDE_LOG")" "-c --noproxy pins the default once"
+assert_eq 1 "$(grep -c 'only the gateway serves' <<< "$ERR")" "and names the setting once"
+run_zsh -c
+assert_eq '-c' "$(< "$WRAPPER_CLAUDE_LOG")" "a plain resume keeps the session's own model"
+assert_not_contains "$ERR" 'only the gateway serves' "without a notice"
+for explicit in '--model sonnet' '--settings {}' '--setting-sources=project' '--agent reviewer'; do
+  # shellcheck disable=SC2086 # split on purpose: one or two words
+  run_zsh $explicit prompt
+  assert_not_contains "$(< "$WRAPPER_CLAUDE_LOG")" default "$explicit is the caller's choice"
+  assert_not_contains "$ERR" 'only the gateway serves' "$explicit: no notice"
+done
+run_capture env -i "${ROUTE_ENV[@]}" ANTHROPIC_MODEL=claude-sonnet-5-5 "$SHIM" prompt
+assert_eq prompt "$(< "$WRAPPER_CLAUDE_LOG")" "a set ANTHROPIC_MODEL outranks the setting: no guard"
+run_capture env -i "${ROUTE_ENV[@]}" ANTHROPIC_MODEL= "$SHIM" prompt
+assert_eq $'--model\ndefault\nprompt' "$(< "$WRAPPER_CLAUDE_LOG")" "an empty ANTHROPIC_MODEL is unset, as Claude reads it"
+run_zsh --proxy sol prompt
+assert_eq 'sol remote' "$(routed)" "--proxy routes as before"
+assert_not_contains "$ERR" 'only the gateway serves' "--proxy: no notice"
+run_capture env -i "${ROUTE_ENV[@]}" CC_ROUTER_AGENT=sol CLIPROXY_ROUTE=remote "$SHIM" prompt
+assert_eq prompt "$(< "$WRAPPER_CLAUDE_LOG")" "inside a routed session: no guard"
+run_capture env -i "${ROUTE_ENV[@]}" CC_ROUTER_AGENT=sol CLIPROXY_ROUTE=remote ANTHROPIC_MODEL=gpt-6-sol "$SHIM" --noproxy prompt
+assert_eq $'--model\ndefault\nprompt' "$(< "$WRAPPER_CLAUDE_LOG")" "--noproxy leaves the route, so the guard applies"
+printf '{"model":"claude-sonnet-5-5"}' > "$PROJECT/.claude/settings.local.json"
+run_zsh prompt
+assert_eq prompt "$(< "$WRAPPER_CLAUDE_LOG")" "the project's own Anthropic model outranks the user's"
+for model in claude-opus-5-5 mystery-1; do
+  printf '{"model":"%s"}' "$model" > "$PROJECT/.claude/settings.local.json"
+  run_zsh prompt
+  assert_eq prompt "$(< "$WRAPPER_CLAUDE_LOG")" "$model is no foreign default"
+  assert_eq '' "$ERR" "$model: no notice"
+done
+printf '{"model":' > "$PROJECT/.claude/settings.local.json"
+run_zsh prompt
+assert_eq 0 "$RC" "an invalid settings file still launches"
+assert_eq $'--model\ndefault\nprompt' "$(< "$WRAPPER_CLAUDE_LOG")" "skipped like Claude skips it, so the user's foreign default is guarded"
+printf '{"env":{"ANTHROPIC_MODEL":"claude-sonnet-5-5"}}' > "$PROJECT/.claude/settings.local.json"
+run_zsh prompt
+assert_eq prompt "$(< "$WRAPPER_CLAUDE_LOG")" "an ANTHROPIC_MODEL in a settings env outranks the model key: no guard"
+run_capture env -i "${ROUTE_ENV[@]}" ANTHROPIC_BASE_URL=https://gateway.invalid "$SHIM" prompt
+assert_eq prompt "$(< "$WRAPPER_CLAUDE_LOG")" "a start aimed away from Anthropic is not guarded"
+if cmp -s "$SETTINGS" "$TMP_ROOT/settings.orig"; then
+  pass "the settings file is never written"
+else
+  fail "the settings file is never written"
+fi
+cd "$TMP_ROOT"
+rm -rf "$CASE_HOME/.claude" "$PROJECT"
 
 # Inside a routed session the recipe is inherited, so a plain claude stays
 # routed; --noproxy leaves it behind.
