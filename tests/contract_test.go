@@ -301,3 +301,29 @@ func TestUsageAndEnvironment(t *testing.T) {
 		t.Fatalf("no HOME: %+v", r)
 	}
 }
+
+// The production statusline detaches its refresh: the render returns at once
+// with the marker, and the child it left behind runs on its own — here a local
+// refresh for a provider with no usage source, which needs no network and
+// leaves only its backoff marker.
+func TestStatuslineDetachesItsRefresh(t *testing.T) {
+	home := t.TempDir()
+	env := []string{"HOME=" + home, "PATH=/usr/bin:/bin", "CLIPROXY_ROUTE=local"}
+	cmd := exec.Command(helper(), "statusline")
+	cmd.Env, cmd.Stdin = env, strings.NewReader(`{"model":{"id":"claude-opus-5-5"}}`)
+	start := time.Now()
+	out, err := cmd.Output()
+	if err != nil || string(out) != "⌂\n" || time.Since(start) > 2*time.Second {
+		t.Fatalf("segment %q, %v after %v", out, err, time.Since(start))
+	}
+	marker := filepath.Join(home, ".cache", "cc-router", "quota", "claude-local.failed")
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if info, err := os.Stat(marker); err == nil {
+			if info.Mode().Perm() != 0o600 {
+				t.Fatalf("marker mode %v", info.Mode())
+			}
+			return
+		}
+	}
+	t.Fatal("the detached refresh never ran")
+}

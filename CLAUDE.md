@@ -10,8 +10,10 @@ Its `launch` owns `claude`'s command line, resume restore included; the wrapper
 (`share/claude.zsh`) and the POSIX shim (`cmd/claude-shim`) only call it;
 `record-session` writes the records it restores from. The interim resume
 bridge (`cmd/cc-harness-resume`, python3) covers sessions without a record.
-The statusline, quota helpers, `cliproxy-auth` and companion still live in the
-private `gering/dotfiles` repository and move later.
+`statusline` is the segment a user's statusline embeds (route marker plus the
+routed provider's quota from a local cache, refreshed detached); it replaces
+the dotfiles quota helpers. `cliproxy-auth` and the companion still live in
+the private `gering/dotfiles` repository and move later.
 
 - **`make check` is the gate** (gofmt/vet/staticcheck, shellcheck/shfmt,
   `zsh -n`, `go test -race`, `tests/run` — routing, wrapper/shim and resume

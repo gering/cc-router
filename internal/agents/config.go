@@ -16,6 +16,7 @@ import (
 // environment" contract.
 const (
 	keyRemoteURL   = "CC_ROUTER_REMOTE_URL"
+	keyUsageURL    = "CC_ROUTER_USAGE_URL"
 	keyProfile     = "CLIPROXY_PROFILE"
 	keyLocalHost   = "CC_ROUTER_LOCAL_HOST"
 	keyLocalPort   = "CC_ROUTER_LOCAL_PORT"
@@ -34,7 +35,9 @@ type setting struct {
 
 var settings = map[string]setting{
 	keyRemoteURL: {validate: validateRemoteURL},
-	keyProfile:   {validate: validateProfile},
+	// The read-only usage API; unset, it is the gateway itself.
+	keyUsageURL: {validate: validateRemoteURL},
+	keyProfile:  {validate: validateProfile},
 	keyLocalHost: {
 		def: func(string) string { return "127.0.0.1" },
 		validate: func(v string) error {

@@ -29,6 +29,7 @@ func Main(rootCAs *x509.CertPool) int {
 		TotalTimeout:   8 * time.Second,
 		DialTimeout:    3 * time.Second,
 		Exec:           syscall.Exec,
+		Spawn:          spawnDetached,
 	}
 	return app.Run(os.Args[1:])
 }
