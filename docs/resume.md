@@ -283,8 +283,9 @@ native launcher on `PATH`. Records start with the statusline hook:
 # in your statusline script, which receives Claude Code's JSON on stdin
 input=$(cat)
 # Stamp before detaching: the stamp orders this render's writer against later ones.
+# Every stream redirected, so the statusline never waits for the writer.
 rendered_at=$(perl -MTime::HiRes=time -e 'printf "%d", time * 1000')
-printf '%s' "$input" | cc-harness-agents record-session --rendered-at "$rendered_at" 2>/dev/null &
+{ printf '%s' "$input" | cc-harness-agents record-session --rendered-at "$rendered_at"; } </dev/null >/dev/null 2>&1 &
 ```
 
 The stamp needs a millisecond clock; macOS `bash` 3.2 has none, hence `perl`

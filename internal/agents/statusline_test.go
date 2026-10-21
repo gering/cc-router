@@ -806,14 +806,26 @@ func TestQuotaFixesFromReview(t *testing.T) {
 		t.Errorf("flat codex credential: %v %v", h, ok)
 	}
 
-	// A rejected local token waits the long backoff too.
+	// A rejected local token waits the long backoff too, even when an older
+	// login fails afterwards with a status that alone would back off briefly.
+	// A FIFO among the credentials is skipped instead of blocking the refresh.
 	ca := newCA(t)
-	srv := gateway(t, ca, []string{"127.0.0.1"}, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(401) })
+	srv := gateway(t, ca, []string{"127.0.0.1"}, func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer rejected" {
+			w.WriteHeader(401)
+			return
+		}
+		w.WriteHeader(500)
+	})
 	useLocalSource(t, "codex", srv.URL)
 	home := quotaHome(t)
+	writeFile(t, filepath.Join(home, ".cli-proxy-api", "codex-rejected.json"), `{"access_token":"rejected","account_id":"a"}`)
+	if err := syscall.Mkfifo(filepath.Join(home, ".cli-proxy-api", "codex-fifo.json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	writeFile(t, filepath.Join(home, ".codex", "auth.json"), `{"tokens":{"access_token":"t","account_id":"a"}}`)
 	r := quotaApp(home, ca)
-	if code := r.refresh("local", "codex"); code != exitUnavailable || !strings.Contains(r.stderr.String(), "codex usage request failed (HTTP 401)") {
+	if code := r.refresh("local", "codex"); code != exitUnavailable || !strings.Contains(r.stderr.String(), "codex usage request failed (HTTP 500)") {
 		t.Fatalf("exit %d, %q", code, r.stderr.String())
 	}
 	data, _ := os.ReadFile(strings.TrimSuffix(cacheFile(home, "codex", "local"), ".json") + ".failed")

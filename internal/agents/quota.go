@@ -384,7 +384,9 @@ func (a *App) fetchLocalUsage(home, provider string) (quotaSnapshot, time.Durati
 			last = note
 			continue
 		case code != http.StatusOK:
-			last, backoff = fmt.Sprintf("%s failed (HTTP %d)", what, code), statusBackoff(code)
+			// The longest backoff wins: an older login answering 500 must not
+			// re-open the retry for a newer one the provider just rejected.
+			last, backoff = fmt.Sprintf("%s failed (HTTP %d)", what, code), max(backoff, statusBackoff(code))
 			continue
 		}
 		q, err := src.parse(body)

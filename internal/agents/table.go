@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // Row is one foreign agent: the ten columns of models.tsv, in file order.
@@ -109,9 +110,10 @@ const maxFileBytes = 1 << 20
 // readRegularFile is the one reader for the files this helper consumes. It
 // refuses directories, devices and FIFOs, which os.ReadFile would otherwise
 // read (or block on forever), and caps the size so a huge or growing file
-// cannot exhaust memory.
+// cannot exhaust memory. O_NONBLOCK makes the open of a FIFO return at once,
+// so the type check below gets to refuse it; a regular file ignores the flag.
 func readRegularFile(path string) ([]byte, error) {
-	f, err := os.Open(path)
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}

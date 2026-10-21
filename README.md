@@ -156,7 +156,8 @@ its own bars — every field optional, a native session is `{}`:
 example statusline: [`docs/statusline.md`](docs/statusline.md).
 
 **It never waits on the network.** The render reads a local cache only, gives
-up after 500 ms with an empty segment, and exits `0` whatever happens. A stale
+up after 500 ms with an empty segment, and exits `0` whatever happens (only an
+unset `HOME` fails, as for every subcommand). A stale
 cache starts a detached refresh (`statusline --refresh <route> <provider>`,
 also runnable by hand to see why a quota is missing — its diagnostics go to its
 stderr, never into the segment). The provider is the table row's `cred`
