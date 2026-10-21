@@ -80,9 +80,11 @@ These points mirror the "cc-router follow-up contract" the dotfiles side wrote
 into `.claude/knowledge/services/cc-harness-agents.md`; after the cutover this
 task is the single source and that section points here.
 
-Open for Robert: dotfiles says a vanished recorded model on resume "fails
-visibly"; the 2026-09-05 policy says unknown/missing resume mapping falls back
-to the Anthropic default with a notice. Which applies to a retired exact model?
+Decided (Robert, 2026-10-21): a resume whose recorded foreign model the
+gateway no longer serves **fails visibly**, naming the way back
+(`claude -c --proxy <agent>` for the agent's current model, `--noproxy` for
+Anthropic). It no longer falls back to the Anthropic default silently.
+Implemented separately: [resume-retired-model-error](resume-retired-model-error.md).
 
 ## Current friction
 The routing helper embeds a profile table while the zsh wrapper separately lists
