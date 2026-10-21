@@ -19,8 +19,9 @@ credentials, only a revocable per-machine key.
 
 > **Status: early.** The routing core, `cc-harness-agents` (Go), the
 > interactive `claude` wrapper, the executable shim and session resume are
-> here. The statusline, its quota helpers, the login tooling (`cliproxy-auth`)
-> and the companion still live in the author's dotfiles and move next — see
+> here, and so is the statusline segment with the routed provider's quota.
+> The login tooling (`cliproxy-auth`) and the companion still live in the
+> author's dotfiles and move next — see
 > [`tasks/mission.md`](tasks/mission.md) and [`tasks/architecture.md`](tasks/architecture.md).
 
 ## Install
@@ -174,7 +175,7 @@ column, found from the session's model the way `resolve-model` finds it.
 | a cache younger than this is not refreshed | 300 s |
 | usage data older than this is not shown | 1800 s (and at most 300 s in the future) |
 | after a failed refresh, no retry for | 60 s |
-| after `401`/`403`/`404`, no retry for | 1800 s — CLIProxyAPI bans an address after five failed authentications in 30 minutes |
+| after `401`/`403`/`404` (either route), no retry for | 1800 s — CLIProxyAPI bans an address after five failed authentications in 30 minutes, and a rejected token does not heal in a minute |
 | response body cap; connect / total timeout | 1 MiB; 3 s / 8 s |
 
 The cache lives in `${XDG_CACHE_HOME:-~/.cache}/cc-router/quota/`

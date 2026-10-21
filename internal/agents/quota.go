@@ -145,8 +145,12 @@ func parseRemoteUsage(body []byte, provider string, now time.Time) (quotaSnapsho
 			}
 		}
 	}
-	if unusable > 0 && usable == 0 {
+	switch {
+	case unusable > 0 && usable == 0:
 		return quotaSnapshot{}, errors.New("usage data is too old or from the future")
+	case usable == 0:
+		// Every account errored: an outage, not an empty quota.
+		return quotaSnapshot{}, errors.New("no account reported usage")
 	}
 	snap := quotaSnapshot{Quota: quota{}, SourceEpoch: now.Unix()}
 	for key, p := range best {
@@ -193,20 +197,24 @@ func bearer(token string) http.Header {
 	return http.Header{"Authorization": {"Bearer " + token}, "Accept": {"application/json"}, "User-Agent": {progName}}
 }
 
-// codexHeader takes the token and account from the proxy's token_data or the
-// codex CLI's tokens.
+// codexHeader takes the token and account from the credential's top level,
+// the proxy's token_data or the codex CLI's tokens.
 func codexHeader(cred map[string]any) (http.Header, bool) {
-	for _, key := range []string{"token_data", "tokens"} {
-		inner, _ := cred[key].(map[string]any)
+	for _, inner := range []map[string]any{cred, asObject(cred["token_data"]), asObject(cred["tokens"])} {
 		token, okT := credString(inner["access_token"])
 		account, okA := credString(inner["account_id"])
 		if okT && okA {
 			h := bearer(token)
-			h["ChatGPT-Account-ID"] = []string{account}
+			h.Set("ChatGPT-Account-ID", account)
 			return h, true
 		}
 	}
 	return nil, false
+}
+
+func asObject(v any) map[string]any {
+	m, _ := v.(map[string]any)
+	return m
 }
 
 // grokHeader takes the proxy's access_token, else the first key of the grok
@@ -290,14 +298,24 @@ func parseGrokUsage(body []byte) (quota, error) {
 	return quota{"seven_day": w}, nil
 }
 
-// Backoffs after a failed refresh. A rejected credential or a provider the
-// usage API does not serve waits the long one: CLIProxyAPI bans an address
-// after five failed authentications in 30 minutes, and a retry a minute
-// would reach that from the statusline alone.
+// Backoffs after a failed refresh. A rejected credential or an unserved
+// provider waits the long one: CLIProxyAPI bans an address after five failed
+// authentications in 30 minutes, and a retry a minute would reach that from
+// the statusline alone.
 const (
 	quotaFailureBackoff = 60 * time.Second
 	quotaLongBackoff    = quotaMaxAge
 )
+
+// statusBackoff is the wait after an HTTP answer other than 200: a rejected
+// credential or an unserved provider does not heal within a minute.
+func statusBackoff(code int) time.Duration {
+	switch code {
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound:
+		return quotaLongBackoff
+	}
+	return quotaFailureBackoff
+}
 
 // fetchRemoteUsage asks the usage API for provider's quota. Missing or
 // malformed credentials stop it before any request: a keyless probe counts
@@ -321,10 +339,8 @@ func (a *App) fetchRemoteUsage(home, provider string) (quotaSnapshot, time.Durat
 	switch {
 	case note != "":
 		return quotaSnapshot{}, quotaFailureBackoff, errors.New(note)
-	case code == http.StatusUnauthorized || code == http.StatusForbidden || code == http.StatusNotFound:
-		return quotaSnapshot{}, quotaLongBackoff, errors.New(gatewayStatus("remote usage request", code))
 	case code != http.StatusOK:
-		return quotaSnapshot{}, quotaFailureBackoff, errors.New(gatewayStatus("remote usage request", code))
+		return quotaSnapshot{}, statusBackoff(code), errors.New(gatewayStatus("remote usage request", code))
 	}
 	snap, err := parseRemoteUsage(body, provider, a.Now())
 	if err != nil {
@@ -351,6 +367,7 @@ func (a *App) fetchLocalUsage(home, provider string) (quotaSnapshot, time.Durati
 	paths := append((&localRoute{proxyDir: dir}).credentials(provider), filepath.Join(home, src.native))
 	what := provider + " usage request"
 	last := fmt.Sprintf("no usable %s credentials in %s or ~/%s", provider, dir, src.native)
+	backoff := quotaFailureBackoff
 	for _, path := range paths {
 		data, err := readRegularFile(path)
 		var cred map[string]any
@@ -367,7 +384,7 @@ func (a *App) fetchLocalUsage(home, provider string) (quotaSnapshot, time.Durati
 			last = note
 			continue
 		case code != http.StatusOK:
-			last = fmt.Sprintf("%s failed (HTTP %d)", what, code)
+			last, backoff = fmt.Sprintf("%s failed (HTTP %d)", what, code), statusBackoff(code)
 			continue
 		}
 		q, err := src.parse(body)
@@ -377,5 +394,5 @@ func (a *App) fetchLocalUsage(home, provider string) (quotaSnapshot, time.Durati
 		}
 		return quotaSnapshot{Quota: q, SourceEpoch: a.Now().Unix()}, 0, nil
 	}
-	return quotaSnapshot{}, quotaFailureBackoff, errors.New(last)
+	return quotaSnapshot{}, backoff, errors.New(last)
 }

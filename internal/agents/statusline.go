@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
 	"os"
 	"os/exec"
@@ -34,17 +35,12 @@ const (
 // routeMarks are the markers for CLIPROXY_ROUTE; any other value is native.
 var routeMarks = map[string]string{"remote": "⇄", "local": "⌂"}
 
-// quotaDir is ${XDG_CACHE_HOME:-~/.cache}/cc-router/quota.
-func quotaDir(env *Env, home string) string {
-	return filepath.Join(filepath.Dir(sessionDir(env, home)), "quota")
-}
-
 // quotaFiles are one provider's cache on one route: the snapshot, the failure
 // marker (its content the retry time) and the refresh lock.
 type quotaFiles struct{ dir, cache, failed, lock string }
 
 func newQuotaFiles(env *Env, home, provider, route string) quotaFiles {
-	dir := quotaDir(env, home)
+	dir := filepath.Join(cacheRoot(env, home), "quota")
 	base := filepath.Join(dir, provider+"-"+route)
 	return quotaFiles{dir: dir, cache: base + ".json", failed: base + ".failed", lock: base + ".lock"}
 }
@@ -110,6 +106,17 @@ func (f quotaFiles) backingOff(now time.Time) bool {
 		retry = limit
 	}
 	return now.Before(retry)
+}
+
+// mayRefresh reports whether a refresh could do any good now: the directory
+// is absent (the refresh creates it) or ours, no failure is backing off and
+// none is in flight. A directory another user could touch would fail every
+// refresh before it can leave a marker, so it starts none.
+func (f quotaFiles) mayRefresh(now time.Time) bool {
+	if err := checkPrivate(f.dir, true); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	return !f.backingOff(now) && !f.refreshing()
 }
 
 // refreshing reports a refresh in flight: its lock is held. Probed without
@@ -207,7 +214,7 @@ func (a *App) statuslineValues(home string) statuslineValues {
 	files := newQuotaFiles(a.Env, home, row.Cred, route)
 	now := a.Now()
 	q, fresh := files.read(now)
-	if !fresh && !files.backingOff(now) && !files.refreshing() && a.Spawn != nil {
+	if !fresh && files.mayRefresh(now) && a.Spawn != nil {
 		// Best effort: a refresh that cannot start leaves the cache as it is.
 		_ = a.Spawn(a.Executable, []string{progName, "statusline", "--refresh", route, row.Cred}, a.Env.Entries())
 	}
@@ -262,6 +269,15 @@ func (a *App) refreshQuota(home, route, provider string) error {
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		return nil // another refresh holds it
 	}
+	// Re-checked under the lock: a refresh that finished just before this one
+	// took it may already have published, or failed into a backoff.
+	if _, fresh := f.read(a.Now()); fresh {
+		return nil
+	}
+	if f.backingOff(a.Now()) {
+		fmt.Fprintf(a.Stderr, "%s: quota refresh: backing off after a failed refresh — delete %s to retry now\n", progName, f.failed)
+		return nil
+	}
 	fetch := a.fetchRemoteUsage
 	if route == "local" {
 		fetch = a.fetchLocalUsage
@@ -269,7 +285,9 @@ func (a *App) refreshQuota(home, route, provider string) error {
 	snap, backoff, err := fetch(home, provider)
 	if err != nil {
 		retry := strconv.FormatInt(a.Now().Add(backoff).Unix(), 10) + "\n"
-		writeAtomic(f.dir, f.failed, []byte(retry))
+		if werr := writeAtomic(f.dir, f.failed, []byte(retry)); werr != nil {
+			fmt.Fprintf(a.Stderr, "%s: quota refresh: cannot write %s\n", progName, f.failed)
+		}
 		return fail(exitUnavailable, "quota refresh (%s, %s): %s", route, provider, oneLine(err.Error()))
 	}
 	out, _ := json.Marshal(snap)

@@ -80,7 +80,6 @@ Planned, still in the dotfiles:
 
 ```
 bin/          cc-router  cliproxy-auth
-statusline/   segment + provider quota helpers
 companion/    Go
 docs/         server-setup.md  troubleshooting.md
 ```
@@ -92,7 +91,7 @@ table exists once" is discipline; that would make it structure.
 
 Today: one binary, `cc-harness-agents`, with the `list` / `exec` / `names` /
 `resolve-model` / `serves` / `launch` / `record-session` / `statusline`
-subcommands. `launch`
+subcommands (`statusline` is the segment, quota included). `launch`
 is what `claude` runs — the wrapper and the shim both hand it their argv — and
 it reads its flags from the table, so a row needs no wrapper edit. `list` and `exec` are work-system's external
 contract and do not move when the entry point does — a later `cc-router` gains

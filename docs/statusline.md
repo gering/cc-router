@@ -14,9 +14,11 @@ README, [The statusline segment](../README.md#the-statusline-segment).
 #!/bin/sh
 input=$(cat)
 
-# The session record for a routed resume. Detached: the statusline never
-# waits for it.
-{ printf '%s' "$input" | cc-harness-agents record-session; } </dev/null >/dev/null 2>&1 &
+# The session record for a routed resume, stamped before it detaches so a
+# slow writer of an older render cannot replace a newer record (perl: a
+# millisecond clock macOS sh lacks). The statusline never waits for it.
+rendered_at=$(perl -MTime::HiRes=time -e 'printf "%d", time * 1000')
+{ printf '%s' "$input" | cc-harness-agents record-session --rendered-at "$rendered_at"; } </dev/null >/dev/null 2>&1 &
 
 model=$(printf '%s' "$input" | jq -r '.model.display_name // .model.id // empty')
 dir=$(printf '%s' "$input" | jq -r '.workspace.current_dir // .cwd // empty')
@@ -77,6 +79,8 @@ cc-harness-agents statusline --refresh remote codex
 ```
 
 The provider is the table row's `cred` column (`codex`, `xai`, …). After a
-failure the statusline waits before it tries again (60 s; 30 minutes after a
-rejected credential), so delete `${XDG_CACHE_HOME:-~/.cache}/cc-router/quota/<provider>-<route>.failed`
-once the cause is fixed if you do not want to wait.
+failure no refresh runs for a while — 60 s, or 30 minutes after a rejected
+credential or an unserved provider — and that holds for a refresh by hand
+too, which then says so. Once the cause is fixed, delete
+`${XDG_CACHE_HOME:-~/.cache}/cc-router/quota/<provider>-<route>.failed` to
+retry at once.

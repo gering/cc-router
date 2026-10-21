@@ -579,8 +579,20 @@ func TestQuotaSuccessClearsTheFailureMarker(t *testing.T) {
 		t.Fatal("no failure marker")
 	}
 	fail.Store(false)
+	// Inside the backoff even a refresh by hand waits, and says how not to.
+	if code := r.refresh("remote", "codex"); code != 0 || !strings.Contains(r.stderr.String(), "backing off") || exists(cacheFile(home, "codex", "remote")) {
+		t.Fatalf("in backoff: exit %d, %q", code, r.stderr.String())
+	}
+	writeFile(t, failed, strconv.FormatInt(time.Now().Add(-time.Second).Unix(), 10))
 	if code := r.refresh("remote", "codex"); code != 0 || exists(failed) || !exists(cacheFile(home, "codex", "remote")) {
 		t.Fatalf("exit %d, marker %v", code, exists(failed))
+	}
+	// A fresh cache is not fetched again.
+	r.stderr.Reset()
+	writeFile(t, failed, "")
+	os.Remove(failed)
+	if code := r.refresh("remote", "codex"); code != 0 || r.stderr.String() != "" {
+		t.Fatalf("fresh: exit %d, %q", code, r.stderr.String())
 	}
 }
 
@@ -765,5 +777,47 @@ func TestStatuslineDoesNotStackRefreshes(t *testing.T) {
 	held.Close()
 	if r.render(t, "gpt-6-sol"); r.spawn.count() != 1 {
 		t.Fatal("no refresh once the lock was free")
+	}
+}
+
+// A quota directory another user could touch fails every refresh before it
+// can leave a marker, so the render starts none.
+func TestStatuslineSpawnsNothingForAForeignDirectory(t *testing.T) {
+	home := quotaHome(t)
+	dir := filepath.Dir(cacheFile(home, "codex", "remote"))
+	os.MkdirAll(dir, 0o700)
+	os.Chmod(dir, 0o755)
+	r := quotaApp(home, nil, "CLIPROXY_ROUTE=remote")
+	if out, _ := r.render(t, "gpt-6-sol"); out != "⇄\n" || r.spawn.count() != 0 {
+		t.Fatalf("segment %q, %d refreshes", out, r.spawn.count())
+	}
+}
+
+func TestQuotaFixesFromReview(t *testing.T) {
+	now := time.Now()
+	// Every account errored: an outage, not an empty quota.
+	body := `{"accounts":[{"provider":"codex","status":"error","fetched_at":"` + now.UTC().Format(time.RFC3339) + `","error":{"category":"upstream_unavailable"}}]}`
+	if _, err := parseRemoteUsage([]byte(body), "codex", now); err == nil {
+		t.Error("an all-error answer was cached as an empty quota")
+	}
+	// The flat credential form the local route accepts carries a quota too.
+	h, ok := codexHeader(map[string]any{"access_token": "flat-token", "account_id": "flat-account"})
+	if !ok || h.Get("Authorization") != "Bearer flat-token" || h.Get("ChatGPT-Account-ID") != "flat-account" {
+		t.Errorf("flat codex credential: %v %v", h, ok)
+	}
+
+	// A rejected local token waits the long backoff too.
+	ca := newCA(t)
+	srv := gateway(t, ca, []string{"127.0.0.1"}, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(401) })
+	useLocalSource(t, "codex", srv.URL)
+	home := quotaHome(t)
+	writeFile(t, filepath.Join(home, ".codex", "auth.json"), `{"tokens":{"access_token":"t","account_id":"a"}}`)
+	r := quotaApp(home, ca)
+	if code := r.refresh("local", "codex"); code != exitUnavailable || !strings.Contains(r.stderr.String(), "codex usage request failed (HTTP 401)") {
+		t.Fatalf("exit %d, %q", code, r.stderr.String())
+	}
+	data, _ := os.ReadFile(strings.TrimSuffix(cacheFile(home, "codex", "local"), ".json") + ".failed")
+	if retry, _ := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64); retry < now.Add(quotaLongBackoff).Unix() {
+		t.Fatalf("retry %d, want the long backoff", retry)
 	}
 }

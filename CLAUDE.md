@@ -67,7 +67,8 @@ Five pieces, deliberately layered so routing logic exists exactly once:
   non-shell callers get the same routing.
 - **`cliproxy-auth`** — tunnels to the private admin API; runs provider OAuth
   logins on the host that keeps the tokens.
-- **quota helpers** — feed the statusline from the read-only usage API.
+- **statusline segment** (`cc-harness-agents statusline`) — route marker and
+  provider quota from a local cache, refreshed from the read-only usage API.
 - **companion** (Go) — two narrow facades in front of CLIProxyAPI's management
   API: `:8320` read-only usage, `:8321` admin over loopback/SSH only.
   CLIProxyAPI itself is `:8317`. The generic management API is never published.
