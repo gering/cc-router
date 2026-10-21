@@ -74,57 +74,80 @@ type prober struct {
 	totalTimeout   time.Duration
 }
 
+// header is the gateway's two per-machine credentials, built in memory and set
+// on the request — never handed to a subprocess. Assigned directly so the
+// names go out exactly as spelled.
+func (r *remoteRoute) header(accept string) http.Header {
+	return http.Header{
+		headerAccessID:     {r.access.id},
+		headerAccessSecret: {r.access.secret},
+		"Authorization":    {"Bearer " + r.apiKey},
+		"Accept":           {accept},
+		"User-Agent":       {progName},
+	}
+}
+
 // probe returns the route's catalog; on failure the catalog is stale and the
 // string is a classified, secret-free reason naming the failing layer.
 func (p *prober) probe(r *remoteRoute) (*Catalog, string) {
 	stale := &Catalog{State: catalogStale}
-	req, err := http.NewRequest(http.MethodGet, r.baseURL+"/v1/models", nil)
-	if err != nil {
-		return stale, "remote network request failed"
-	}
-	// Assigned directly so the names go out exactly as spelled.
-	req.Header = http.Header{
-		headerAccessID:     {r.access.id},
-		headerAccessSecret: {r.access.secret},
-		"Authorization":    {"Bearer " + r.apiKey},
-		"Accept":           {"*/*"},
-		"User-Agent":       {progName},
-	}
-	resp, err := p.client().Do(req)
-	if err != nil {
-		if isTLSError(err) {
-			return stale, "remote TLS validation failed"
-		}
-		return stale, "remote network request failed"
-	}
-	defer resp.Body.Close()
-
-	switch code := resp.StatusCode; {
-	case code == http.StatusOK:
-	case code == http.StatusUnauthorized:
-		return stale, "remote proxy API key rejected (HTTP 401)"
-	case code == http.StatusForbidden:
-		return stale, "Cloudflare Access rejected the client credentials (HTTP 403)"
-	case code == http.StatusBadGateway || code == http.StatusServiceUnavailable:
-		return stale, fmt.Sprintf("remote proxy origin unavailable (HTTP %d)", code)
-	case code >= 300 && code < 400:
-		return stale, fmt.Sprintf("remote endpoint returned a redirect (HTTP %d); redirects are disabled", code)
-	default:
-		return stale, fmt.Sprintf("remote model probe failed (HTTP %d)", code)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, remoteMaxBodyBytes+1))
-	if err != nil {
-		return stale, "remote network request failed"
-	}
-	if len(body) > remoteMaxBodyBytes {
-		return stale, fmt.Sprintf("remote model probe response exceeds %d bytes", remoteMaxBodyBytes)
+	body, code, note := p.get(r.baseURL+"/v1/models", r.header("*/*"), "remote", "remote model probe")
+	switch {
+	case note != "":
+		return stale, note
+	case code != http.StatusOK:
+		return stale, gatewayStatus("remote model probe", code)
 	}
 	cat, err := parseCatalog(body)
 	if err != nil {
 		return stale, "remote model probe returned invalid JSON"
 	}
 	return cat, ""
+}
+
+// gatewayStatus names the layer behind a gateway answer other than 200.
+func gatewayStatus(what string, code int) string {
+	switch {
+	case code == http.StatusUnauthorized:
+		return "remote proxy API key rejected (HTTP 401)"
+	case code == http.StatusForbidden:
+		return "Cloudflare Access rejected the client credentials (HTTP 403)"
+	case code == http.StatusBadGateway || code == http.StatusServiceUnavailable:
+		return fmt.Sprintf("remote proxy origin unavailable (HTTP %d)", code)
+	case code >= 300 && code < 400:
+		return fmt.Sprintf("remote endpoint returned a redirect (HTTP %d); redirects are disabled", code)
+	}
+	return fmt.Sprintf("%s failed (HTTP %d)", what, code)
+}
+
+// get performs one bounded GET. A transport failure or an oversized body is a
+// note naming layer (TLS vs. network) or what; any other answer returns its
+// status code, and the body only with 200.
+func (p *prober) get(url string, header http.Header, layer, what string) (body []byte, code int, note string) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, 0, layer + " network request failed"
+	}
+	req.Header = header
+	resp, err := p.client().Do(req)
+	if err != nil {
+		if isTLSError(err) {
+			return nil, 0, layer + " TLS validation failed"
+		}
+		return nil, 0, layer + " network request failed"
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, resp.StatusCode, ""
+	}
+	body, err = io.ReadAll(io.LimitReader(resp.Body, remoteMaxBodyBytes+1))
+	if err != nil {
+		return nil, 0, layer + " network request failed"
+	}
+	if len(body) > remoteMaxBodyBytes {
+		return nil, 0, fmt.Sprintf("%s response exceeds %d bytes", what, remoteMaxBodyBytes)
+	}
+	return body, http.StatusOK, ""
 }
 
 // client refuses redirects, bounds every phase, sends no compression request
