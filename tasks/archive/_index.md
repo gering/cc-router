@@ -11,3 +11,4 @@
 - 2026-10-19 · PR #16 (merged @ e4b0ddf) · record-session-ordering — Record-session ordering
 - 2026-10-19 · PR #19 (merged @ d351f9f) · opus-route-and-noproxy — Opus route and --noproxy
 - 2026-10-20 · PR #20 (merged @ e250619) · foreign-default-model-guard — Foreign default-model guard
+- 2026-10-21 · PR #21 (merged @ 0290779) · resume-retired-model-error — Fail a resume whose recorded model is retired
