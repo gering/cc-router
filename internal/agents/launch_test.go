@@ -3,6 +3,7 @@ package agents
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 )
@@ -111,5 +112,16 @@ func TestForeignDefault(t *testing.T) {
 				t.Errorf("table loaded = %v, want %v", loaded, c.wantTable)
 			}
 		})
+	}
+}
+
+func TestRetiredModelNamesTheWaysForward(t *testing.T) {
+	r := resumeRoute{id: "11111111-1111-4111-8111-111111111111", agent: "sol", model: "gpt-5.6-sol"}
+	got := retiredModel(r).Error()
+	for _, want := range []string{"gpt-5.6-sol via " + agentNamespace + ":sol", "no longer serves",
+		"`claude --resume " + r.id + " --proxy sol`", "`claude --resume " + r.id + " --noproxy`"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("%q lacks %q", got, want)
+		}
 	}
 }

@@ -109,9 +109,11 @@ that is `--proxy opus`).
 `claude -c` and `claude --resume <id>` restore the agent, route and
 exact model the session last ran on — from the session's record when the
 statusline wrote one, else from its transcript (`cc-harness-resume`). When that
-model maps to no agent, or the gateway no longer serves it, the session resumes
-on the Anthropic default with a notice; a route that fails (`403`, `401`,
-`502`, TLS) stays an error, and an explicit model flag always wins over the
+model maps to no agent, the session resumes on the Anthropic default with a
+notice. When the gateway no longer serves it, the resume fails and names the
+way back for that session: `claude --resume <id> --proxy <agent>` for the
+agent's current model, or `claude --resume <id> --noproxy` for Anthropic. A route that fails (`403`, `401`, `502`,
+TLS) stays an error, and an explicit model flag always wins over the
 restore. An Anthropic (`claude-*`) model id resumes natively unless the
 session's record names its agent: the opus row never claims a native session
 from its transcript alone. Precedence, the record's location, troubleshooting and how to turn it

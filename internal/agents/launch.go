@@ -603,7 +603,8 @@ func (a *App) nativeClaude(home string) (string, error) {
 // restore re-enters the routing a resumed session last ran on. Explicit
 // caller choices never reach here; this decides only what the session itself
 // recorded, and on doubt changes nothing or falls back to the Anthropic
-// default — it never guesses a foreign route.
+// default — it never guesses a foreign route. A recorded model the gateway
+// dropped is no doubt but a choice the caller has to make: it stops there.
 func (a *App) restore(home string, p *launchPlan, table func() *Table) error {
 	r := a.resolveResume(home, p, table)
 	if r.status == resumeResolved && r.agent != "native" {
@@ -611,17 +612,16 @@ func (a *App) restore(home string, p *launchPlan, table func() *Table) error {
 		// route stays local and meets its own readiness gate in exec.
 		p.restoredLocal = r.route == "local"
 		// The table maps the model, but the gateway may have dropped it since.
-		// That verdict alone falls back to the Anthropic default; every other
-		// failure is the route's and stays an error naming its layer. The
-		// local route has no catalog to ask.
+		// Neither way forward is the session's own, so the resume stops and
+		// names both; every other failure is the route's and keeps its layer.
+		// The local route has no catalog to ask.
 		if !p.local && !p.restoredLocal {
 			if err := a.servesModel(home, r.model); err != nil {
 				var ee *exitError
 				if !errors.As(err, &ee) || ee.code != exitNotServed {
 					return err
 				}
-				fmt.Fprintf(a.Stderr, "%s: %s\n", progName, ee.msg)
-				r.status = resumeUnroutable
+				return a.refuse(retiredModel(r))
 			}
 		}
 	}
@@ -643,6 +643,16 @@ func (a *App) restore(home string, p *launchPlan, table func() *Table) error {
 	// resumeUnknown: cannot tell (no session, the picker, nothing recorded) —
 	// change NOTHING, or a plain resume would outrank the user's own model.
 	return nil
+}
+
+// retiredModel refuses a resume whose recorded model the gateway no longer
+// serves, naming the two explicit choices that bypass the restore. Both name
+// the resolved session: an explicit choice leaves -c to Claude's own pick,
+// which may be another conversation than the one refused here.
+func retiredModel(r resumeRoute) conflict {
+	return conflict(fmt.Sprintf("this session ran on %s via %s:%s, which the gateway no longer serves — "+
+		"continue on %[3]s's current model with `claude --resume %[4]s --proxy %[3]s`, or on Anthropic with `claude --resume %[4]s --noproxy`",
+		oneLine(r.model), agentNamespace, r.agent, r.id))
 }
 
 // Resume verdicts, numbered as cc-harness-resume's exit statuses.
