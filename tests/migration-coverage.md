@@ -90,7 +90,8 @@ unknown options passing through, and a missing helper.
 `scripts/test-cc-harness-resume.py` came across whole as
 `tests/test-cc-harness-resume.py` (38 tests; harness adapted to the package
 layout and a hermetic `HOME`), plus the not-served decision: a recorded model
-the gateway dropped resumes on the Anthropic default with a notice, a route
+the gateway dropped fails the resume naming `--proxy <agent>` and `--noproxy`
+(through the wrapper and the shim; both ways forward start), a route
 failure stays an error with its layer and status, and neither an explicit flag
 nor `--local` nor a native session asks the remote route. `names` and `serves`
 have their own cases in the routing suite.

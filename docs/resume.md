@@ -102,7 +102,7 @@ Highest first:
 | the session's record: routed | that agent, route and exact model, announced on stderr |
 | no usable record: the transcript names a routable model | that agent + model, remote route |
 | record or transcript names a model nothing routes | `--model default` pinned, notice on stderr |
-| routable model the gateway no longer serves | `--model default` pinned, notice on stderr |
+| routable model the gateway no longer serves | **error** naming the model, the agent and both ways forward; nothing launched |
 | routable model, the route fails (403/401/502/TLS, unconfigured) | error naming the layer, nothing launched |
 | nothing determinable | **nothing is changed** |
 
@@ -120,9 +120,22 @@ bypasses it.
 
 Before a remote restore `launch` asks the route whether it still serves the
 model (the check behind `cc-harness-agents serves`). Exit `4` — the route
-answered and no longer offers the model — is the only verdict that falls back
-to the Anthropic default (Robert, 2026-10-16); every other failure is the
-route's and keeps its status and message. An explicit `--proxy <agent>` never
+answered and no longer offers the model — stops the resume (Robert,
+2026-10-21; until then it fell back to the Anthropic default):
+
+```
+claude: this session ran on gpt-5.6-sol via cc-harness:sol, which the gateway no longer serves — continue on sol's current model with `claude --resume <UUID> --proxy sol`, or on Anthropic with `claude --resume <UUID> --noproxy`
+```
+
+Both suggestions are explicit choices, so neither runs the restore again —
+which is also why they name the resolved session even after a `-c`: without a
+restore, `-c` is Claude's own pick and may be another conversation
+(`claude -c --proxy sol` still works when that is the one you mean). Neither needs a
+`--model`: Claude Code does not re-apply a resumed session's stored model —
+`ANTHROPIC_MODEL` (the agent's current primary under `--proxy`) or the account
+default decides, also after an in-session `/model` (observed with Claude Code
+2.1.306, interactive and `-p`, against a stub gateway). Every other failure is
+the route's and keeps its status and message. An explicit `--proxy <agent>` never
 asks: `exec` refuses a model the route lacks with "remote models missing:
 <id>". `--local` has no catalog to ask, so its own readiness gate decides.
 
@@ -305,9 +318,10 @@ Calling the native binary by absolute path deliberately bypasses all of this.
   rung) resolves to no profile, so `launch` prints that it could not restore
   and pins the Anthropic default — it does not quietly resume on the rung's
   successor. Pass `--proxy <agent>` (`--proxy luna`, …) to continue on a routed model.
-  An id a row DOES still carry but the route no longer serves ends the same
-  way: `serves` reports it, and the session resumes on the Anthropic default
-  with a notice (decided 2026-10-16).
+  An id the table still maps but the route no longer serves is refused
+  instead: `serves` reports it, and the resume fails naming
+  `--proxy <agent>` and `--noproxy` (decided 2026-10-21; it fell back to the
+  Anthropic default before).
 - A **superseded** id the route still serves (gpt-5.6-sol/luna after gpt-6 took
   their rungs) is restored exactly as the **primary**: it resolves to its former
   row under its own id, so the session continues on gpt-5.6, not on the

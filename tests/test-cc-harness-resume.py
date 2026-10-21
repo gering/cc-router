@@ -154,6 +154,14 @@ print(json.dumps({'args':sys.argv[1:], 'agent':os.getenv('CC_ROUTER_AGENT'), 'ro
         self.assertEqual(result.returncode,0,result.stderr)
         return json.loads(result.stdout), result.stderr
 
+    def assert_retired(self, result):
+        self.assertEqual((result.returncode, result.stdout), (1, ''))
+        self.assertEqual(result.stderr.count('\n'), 1, result.stderr)
+        for part in ('gpt-5.6-sol via cc-harness:sol', 'no longer serves',
+                     f'`claude --resume {A} --proxy sol`', f'`claude --resume {A} --noproxy`'):
+            self.assertIn(part, result.stderr)
+        self.assertNotIn('remote-api-secret', result.stderr)
+
 
 
 class ResumeTests(Fixture):
@@ -263,28 +271,43 @@ class ResumeTests(Fixture):
         self.assertIsNone(data['agent'])
         self.assertEqual(data['args'],['-r',A])
 
-    # --- a recorded model the gateway no longer serves (Robert, 2026-10-16) ---
-    # The table still maps it, but the route dropped it: the session resumes on
-    # the Anthropic default with a notice, like an unmapped model. Only that
-    # verdict (serves exit 4) falls back; a failing route stays an error.
+    # --- a recorded model the gateway no longer serves (Robert, 2026-10-21) ---
+    # The table still maps it, but the route dropped it: the resume fails,
+    # launches nothing, and names the model, the agent and both ways forward —
+    # each of which then starts. A failing route stays an error of its own.
 
-    def test_unserved_recorded_model_falls_back_to_anthropic(self):
-        self.session(models=('gpt-5.6-sol',))
-        self.serve([m for m in SERVED if m != 'gpt-5.6-sol'])
-        data, warning = self.run_wrapper('--resume', A)
-        self.assertIsNone(data['agent'])
-        self.assertEqual(data['pins'], {})
-        self.assertEqual(data['args'], ['--model', 'default', '--resume', A])
-        self.assertIn('no longer serves gpt-5.6-sol', warning)
-        self.assertIn('normal Anthropic', warning)
+    def retire(self, model='gpt-5.6-sol'):
+        self.session(models=(model,))
+        self.serve([m for m in SERVED if m != model])
 
-    def test_fallback_keeps_continue_on_the_resolved_session(self):
-        # The decision was made for the resolved transcript, so the fallback
-        # pins it too: a bare -c would let Claude pick another one.
-        self.session(models=('gpt-5.6-sol',))
-        self.serve([m for m in SERVED if m != 'gpt-5.6-sol'])
-        data, _ = self.run_wrapper('-c')
-        self.assertEqual(data['args'], ['--model', 'default', '--resume=' + A])
+    def test_retired_recorded_model_fails_naming_the_ways_forward(self):
+        self.retire()
+        # -c names the session it resolved: --proxy leaves -c to Claude's pick.
+        self.assert_retired(self.raw_wrapper('--resume', A, 'hello'))
+        self.assert_retired(self.raw_wrapper('-c'))
+
+    def test_retired_model_fails_through_the_shim(self):
+        # A copy next to the fixture's helper, which trusts the test gateway.
+        shim = self.bin / 'shim/claude'
+        shim.parent.mkdir()
+        shutil.copy(SHIM, shim)
+        self.retire()
+        result = subprocess.run([str(shim), '--resume', A], cwd=self.cwd, env=self.env(),
+                                capture_output=True, text=True)
+        self.assert_retired(result)
+
+    def test_retired_model_ways_forward_start(self):
+        # The suggested commands are explicit choices: no restore asks the
+        # route, and Claude gets the agent's current model or the account
+        # default, never the retired id.
+        self.retire()
+        for selector in (('-c',), ('--resume', A)):
+            data, _ = self.run_wrapper(*selector, '--proxy', 'sol')
+            self.assertEqual((data['agent'], data['model'], data['pins']), ('sol', 'gpt-6-sol', {}))
+            self.assertEqual(data['args'], list(selector))
+            data, _ = self.run_wrapper(*selector, '--noproxy')
+            self.assertEqual((data['agent'], data['model']), (None, None))
+            self.assertEqual(data['args'], ['--model', 'default', *selector])
 
     def test_route_failure_on_resume_fails_closed(self):
         self.session()
@@ -751,6 +774,12 @@ class SidecarTests(Fixture):
         self.sidecar(agent='sol', model='gpt-6-sol')
         data, _ = self.run_wrapper('-c', CC_ROUTER_AGENT='grok', CLIPROXY_ROUTE='remote')
         self.assertEqual((data['agent'], data['args'], data['pins']), ('grok', ['-c'], {}))
+
+    def test_retired_model_from_a_record_fails_the_same(self):
+        # The record path reaches the same verdict as the transcript bridge.
+        self.sidecar(agent='sol', model='gpt-5.6-sol')
+        self.serve([m for m in SERVED if m != 'gpt-5.6-sol'])
+        self.assert_retired(self.raw_wrapper('-c'))
 
     def test_direct_executable_restores_through_the_shim(self):
         # No shell function anywhere: the shim alone. It execs the production
