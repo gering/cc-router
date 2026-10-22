@@ -58,7 +58,7 @@ macOS ships is where a stranger's silent failure would come from.
 
 ## Layout
 
-Implemented (migration steps 1 and 1b):
+Implemented (migration steps 1, 1b and 2):
 
 ```
 cmd/cc-harness-agents/    the binary: CLI entry point and production wiring
@@ -69,6 +69,7 @@ internal/testpki/         hermetic TLS fixtures (CA, loopback listeners)
 share/models.tsv          <- the table as data
 share/claude.zsh          the interactive wrapper (terminal capture only), sourced from .zshrc
 docs/resume.md            the resume runbook: precedence, exit statuses, limits
+docs/statusline.md        a complete statusline embedding the segment
 tests/                    run  +  the carried-over upstream suites
 Makefile                  build / check / fmt over the Go toolchain
 install.sh                POSIX, links bin/* onto PATH
@@ -80,18 +81,18 @@ Planned, still in the dotfiles:
 
 ```
 bin/          cc-router  cliproxy-auth
-statusline/   segment + provider quota helpers
 companion/    Go
 docs/         server-setup.md  troubleshooting.md
 ```
 
 **One entry point with subcommands** — the target shape: `cc-router run|models|
-status|statusline|auth|doctor`, with the shim, the statusline and the quota
-helpers calling *it* and holding no routing logic of their own. Today "the model
+status|statusline|auth|doctor`, with the shim and the statusline calling *it*
+and holding no routing logic of their own. Today "the model
 table exists once" is discipline; that would make it structure.
 
 Today: one binary, `cc-harness-agents`, with the `list` / `exec` / `names` /
-`resolve-model` / `serves` / `launch` / `record-session` subcommands. `launch`
+`resolve-model` / `serves` / `launch` / `record-session` / `statusline`
+subcommands (`statusline` is the segment, quota included). `launch`
 is what `claude` runs — the wrapper and the shim both hand it their argv — and
 it reads its flags from the table, so a row needs no wrapper edit. `list` and `exec` are work-system's external
 contract and do not move when the entry point does — a later `cc-router` gains
@@ -144,8 +145,8 @@ Frozen per session: the route, the token, the model, the ceiling. There is no
 hot-reload for that in any language.
 
 Re-read from disk on every use, because Claude Code spawns them as
-subprocesses: the statusline (per render), hook/command/skill scripts, the
-quota helpers, and anything typed in a terminal. Note the distinction — the
+subprocesses: the statusline (per render) and its detached quota refresh,
+hook/command/skill scripts, and anything typed in a terminal. Note the distinction — the
 *contents* of the file a configuration points at are read fresh each time; the
 wiring in `settings.json` is not necessarily.
 
@@ -154,7 +155,7 @@ Three levers follow:
 1. **Install by symlink, never by copy** — as the dotfiles already do
    (`~/.scripts -> dotfiles/.scripts`). Saving a file is the deploy step.
 2. **Push what can be live into the live layer.** A model table read per
-   invocation appears immediately in every statusline, quota call and new
+   invocation appears immediately in every statusline, quota refresh and new
    session.
 3. **Make the restart cheap instead of avoiding it.** With `claude -c` restoring
    route, profile and exact model, a restart costs a command and no context.
@@ -170,10 +171,11 @@ Three levers follow:
   exists, and it covers the cross-provider switch described above.
 - **`cc-router config`** prints every value with its origin (file / env /
   default); secrets only as set/missing.
-- **The statusline ships as a segment, not a statusline.** `cc-router
-  statusline` reads the Claude Code JSON on stdin and emits one segment the user
-  embeds in their own line; `docs/` carries a complete example. It reads cache
-  only, never the network, with a hard timeout and an empty fallback.
+- **The statusline ships as a segment, not a statusline** (done:
+  `cc-harness-agents statusline`, example in `docs/statusline.md`). It reads
+  the Claude Code JSON on stdin and emits one segment the user embeds in their
+  own line. It reads cache only, never the network, with a hard timeout and an
+  empty fallback.
 
 ## Quality gate
 
@@ -221,7 +223,8 @@ Order — each step must leave the author working the same day:
 1. `cc-harness-agents` — the core; the most tests; everything else calls it.
    - **1b.** the `claude()` wrapper and the resume bridge — thin callers of 1;
      the flags come from its table (`launch` reads it).
-2. statusline + quota — depend on 1, independently testable.
+2. statusline + quota — depend on 1, independently testable. Done as the
+   `statusline` subcommand; the dotfiles helpers go at the cutover.
 3. `cliproxy-auth` — largest file, least entangled.
 4. companion — rename the module, decide the release path.
 

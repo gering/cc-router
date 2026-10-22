@@ -482,3 +482,130 @@ record, and a record on a vanished row resuming a `claude-*` id natively.
 | 1823 | an unknown gpt id is refused rather than guessed | ported verbatim |
 | 1824 | the refusal says why | ported verbatim |
 | 1828 | a native model has no agent profile | ported verbatim |
+
+# Quota suite: `scripts/test-cliproxy-quota.sh` → Go tests
+
+Every assertion site of dotfiles' quota suite and where it lives now. Source:
+dotfiles `cabd354` (blob `cba03da`, last changed in `cd28767`). The suite ran
+the bash helpers (`cliproxy-quota-source.sh`, `{codex,grok,kimi}-quota.sh`)
+against a PATH-faked curl; the Go port is `cc-harness-agents statusline` and
+its detached `--refresh`, tested with `httptest` servers in
+`internal/agents/statusline_test.go` (`TestStatusline*`, `TestQuota*`,
+`TestParse*Usage`) and the production binary in `tests/contract_test.go`
+(`TestStatuslineDetachesItsRefresh`). Offline throughout.
+
+| Disposition | Sites |
+|---|---|
+| ported | 44 |
+| ported, amended (noted per row) | 10 |
+| covered by an existing test of shared code | 5 |
+| replaced by an equivalent behavioural check | 8 |
+| retired (curl/bash-specific, justified per row) | 11 |
+| not ported, pending a kimi row | 5 |
+| **total** | **83** |
+
+**What changed in shape.** The cache moved to
+`${XDG_CACHE_HOME:-~/.cache}/cc-router/quota/<cred>-<route>.json` and is one
+format for both routes (`quota` plus `source_epoch`). The usage URL is
+configuration (`CC_ROUTER_USAGE_URL`, default the gateway) instead of a
+constant. The provider is the table row's `cred`, not a helper per model glob.
+The lock is an `flock`, released by the kernel when its holder exits, so the
+stale-lock recovery (mkdir lock, owner token, recovery mutex, 120 s age) has
+nothing left to do. A rejected credential (`401`/`403`) or an unserved
+provider (`404`) backs off 30 minutes instead of 60 s: CLIProxyAPI bans an
+address after five failed authentications in 30 minutes. Envelope and account
+fields the aggregation does not read are ignored rather than refused (the
+companion may grow a field without blanking the bars); the consumed ones —
+provider, status, `fetched_at`, `rate_limits`, the two windows — stay strict.
+A manual `--refresh` exits `1` with a diagnostic; the render path is the one
+that always exits `0`.
+
+| Line | Assertion | Disposition |
+|---|---|---|
+| 329 | fresh remote cache exits successfully | ported (`TestStatuslineFreshCacheIsShownWithoutRefresh`) |
+| 330 | fresh remote cache is printed | ported; text segment and `--json` |
+| 331 | fresh remote cache does not invoke curl | ported: no refresh is spawned |
+| 352 | GNU stat fallback recognizes a fresh cache | retired: no `stat` binary, the mtime comes from `os.Lstat` |
+| 353 | GNU stat fallback avoids an unnecessary refresh | retired, as 352 |
+| 361 | remote route ignores a fresh local cache | ported (`TestStatuslineHidesWhatItCannotTrust`, "other route") |
+| 364 | remote route writes a distinct companion cache | ported (`TestQuotaRemoteRefresh`: `<cred>-remote.json`) |
+| 373 | stale remote cache is returned before refresh | ported (`TestStatuslineStaleCacheIsShownAndRefreshed`) |
+| 376 | stale remote cache starts one detached refresh | ported: exactly one spawn with `statusline --refresh <route> <cred>` |
+| 377 | detached refresh atomically replaces the cache | ported (`TestQuotaRemoteRefresh`; temp file + rename in `writeAtomic`) |
+| 387 | cache older than 30 minutes is not printed | ported ("source too old") |
+| 388 | expired cache still starts a detached refresh | ported |
+| 398 | orphan cache metadata cannot extend an expired published snapshot | amended: there is no `.source-time` sidecar to orphan; an orphan temp file is ignored (`TestStatuslineIgnoresAnOrphanTempFile`) |
+| 399 | crash-state test remains inside failure backoff | ported |
+| 400 | orphan temp cache never replaces the published quota | ported |
+| 408 | `$helper` remote refresh exits successfully | ported for codex, xai and a kimi test row (`TestQuotaRemoteRefresh`) |
+| 409 | `$helper` remote refresh invokes curl once | ported: one request |
+| 410 | `$helper` uses its fixed companion URL | amended: `<CC_ROUTER_USAGE_URL>/usage/v1/<cred>`; the default is the gateway (`TestQuotaUsageURLDefaultsToTheGateway`) |
+| 411 | ignores user curl configuration | retired: there is no curl |
+| 412 | uses an explicit GET request | retired: `http.MethodGet` in code, no flag to assert |
+| 413 | caps the response body | replaced: an oversized body fails the refresh ("oversize") |
+| 414 | uses the 1 MiB limit | replaced: the oversize diagnostic names 1048576 bytes |
+| 415 | disables redirects | replaced: a `302` fails the refresh ("redirect") |
+| 416 | never follows redirects | replaced, as 415 |
+| 417 | never disables TLS verification | replaced: an untrusted CA fails the refresh ("TLS") |
+| 418 | restricts curl to HTTPS | replaced: an `http://` usage URL is refused before any request (`TestQuotaNeverSendsAKeylessRequest`) |
+| 419 | reads headers from stdin | retired: headers are set on the request in memory; no subprocess sees them |
+| 420 | sends bearer auth on stdin | amended: sent as the `Authorization` header (`TestQuotaRemoteRefresh`) |
+| 421 | sends Access ID on stdin | amended, as 420 (`CF-Access-Client-Id`) |
+| 422 | sends Access secret on stdin | amended, as 420 (`CF-Access-Client-Secret`) |
+| 423 | keeps remote secrets out of argv and output | ported: cache, stdout and stderr (`assertSecretSafe`) |
+| 424 | preserves NO_PROXY | covered: the shared client's proxy precedence (`TestProbeProxy`) |
+| 425 | preserves no_proxy | covered, as 424 |
+| 426 | removes the API key from curl environment | retired: no curl subprocess; the detached refresh is this binary and needs the key |
+| 427 | removes the Access ID from curl environment | retired, as 426 |
+| 428 | removes the Access secret from curl environment | retired, as 426 |
+| 434 | remote refresh succeeds with inherited shell tracing | retired: no shell, nothing to trace |
+| 435 | remote refresh disables tracing before copying secrets | retired, as 434 |
+| 442 | `$label` failure is non-fatal to the statusline helper | amended: the render always exits 0; a manual `--refresh` exits 1 with the diagnostic (`TestQuotaRemoteFailuresAreSafe`) |
+| 443 | `$label` failure does not write a cache | ported (network, TLS, redirect, oversize, 401/403/404/502, JSON, schema, wrong provider) |
+| 444 | `$label` failure writes a backoff marker | amended: the marker holds the retry time — 60 s, 30 min after 401/403/404 |
+| 445 | `$label` failure does not leak secrets | ported |
+| 456 | unsafe profile syntax is rejected before curl | covered: the shared profile parser (`TestLegacyProfile`) |
+| 457 | profile data is never executed | covered, as 456: the file is parsed as data, never sourced |
+| 458 | profile parser errors do not leak secrets | ported: the "bad profile" case names `CLIPROXY_PROFILE` only |
+| 465 | explicit profile override bypasses the profile file | covered: `CLIPROXY_PROFILE` precedence (`TestConfigPrecedence`); every quota test runs on it with no file |
+| 466 | explicit profile override resolves indirect credentials | ported: `CLIPROXY_API_KEY_TEST` et al. in every remote test |
+| 486 | `$secret_case` credential is rejected before curl | ported, empty and control-character key plus an empty Access secret (`TestQuotaNeverSendsAKeylessRequest`) |
+| 487 | `$secret_case` credential does not create a cache | ported |
+| 488 | `$secret_case` credential rejection does not leak secrets | ported; the diagnostic names the variable |
+| 500 | aggregation selects the highest valid account per window | ported (`TestParseRemoteUsage`) |
+| 505 | missing windows remain absent from statusline JSON | ported |
+| 511 | companion data older than 30 minutes is not cached | ported ("old data", on codex instead of kimi) |
+| 512 | old companion data enters failure backoff | ported |
+| 518 | far-future companion data is not cached | ported ("future data") |
+| 519 | far-future companion data enters failure backoff | ported |
+| 526 | live refresh lock prevents a duplicate request | ported (`TestQuotaRefreshLock`) |
+| 534 | old lock with a live owner is not stolen | replaced: a held `flock` is never taken, whatever its age |
+| 541 | stale refresh lock is recovered | amended: the lock file a dead holder leaves is no obstacle |
+| 542 | recovered lock permits a cache write | ported |
+| 568 | two parallel stale recoverers perform exactly one fetch | ported |
+| 569 | parallel stale recovery publishes exactly one cache snapshot | ported |
+| 571 | parallel stale recovery cleans both lock directories | retired: the lock file persists by design; there are no lock directories |
+| 580 | initial failed refresh invokes curl | ported (`TestQuotaSuccessClearsTheFailureMarker`) |
+| 585 | fresh failure marker suppresses repaint refreshes | ported (`TestStatuslineFailureMarkerBacksOff`, with expiry and a capped retry time) |
+| 587 | successful refresh clears the failure marker | ported |
+| 588 | successful refresh after backoff writes the cache | ported |
+| 599 | remote failure backoff does not block local refresh | ported (`TestStatuslineIgnoresAnOrphanTempFile`, last step) |
+| 600 | local refresh uses its independent cache namespace | ported (`TestQuotaLocalCodex`: `<cred>-local.json`, no remote cache) |
+| 609 | local Codex retains native fallback and parser | ported (`TestQuotaLocalCodex`) |
+| 610 | local Codex uses the native endpoint | ported (`TestLocalUsageEndpoints`) |
+| 611 | local Codex never uses the remote endpoint | amended: the test's gateway URL is unreachable, so only the local source can answer |
+| 620 | local Grok retains native fallback and parser | ported (`TestQuotaLocalGrok`) |
+| 621 | local Grok uses the native endpoint | ported (`TestLocalUsageEndpoints`) |
+| 622 | local Grok never uses the remote endpoint | amended, as 611 |
+| 630 | local Kimi retains CLIProxy auth and both parsers | not ported, pending a kimi row: `GET https://api.kimi.com/coding/v1/usages` with the newest non-disabled `kimi-*.json` `access_token`; the first `limits[]` entry whose `window` is `TIME_UNIT_MINUTE`/`300` gives `five_hour` from its `detail`, `usage` gives `seven_day`; each is `floor(used*100/limit)` clamped to 0–100 from string counts, only for a positive limit, `resetTime` ISO → epoch; no window at all is a failure |
+| 631 | local Kimi uses the native endpoint | not ported, pending a kimi row |
+| 632 | local Kimi never uses the remote endpoint | not ported, pending a kimi row |
+| 638 | local Kimi does not add a native CLI fallback | not ported, pending a kimi row: its `usageSource` gets no `native` login |
+| 639 | native-only Kimi credentials do not create a cache | not ported, pending a kimi row |
+| 648 | empty remote cache returns no synchronous output | ported ("none": the marker alone) |
+| 650 | statusline invocation returns before sleeping curl | replaced: `TestSpawnDetachedDoesNotWait` and the production render in `TestStatuslineDetachesItsRefresh` |
+| 656 | sleeping curl still runs only once in the background | ported: the production render's detached refresh runs and leaves its marker (`TestStatuslineDetachesItsRefresh`) |
+
+A kimi row's remote quota needs no code (`TestQuotaRemoteRefresh` runs a kimi
+test row); its local quota is one `localUsage` entry plus the parser specified
+in row 630.

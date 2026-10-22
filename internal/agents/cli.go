@@ -3,9 +3,9 @@
 // agent table, the route probes and the routing environment; callers choose
 // an agent and, optionally, the route.
 //
-// The CLI (list, exec, names, resolve-model, serves, launch, record-session)
-// is an external contract — see README.md. Remote is the default route;
-// --local selects the machine-local gateway and is never an automatic
+// The CLI (list, exec, names, resolve-model, serves, launch, record-session,
+// statusline) is an external contract — see README.md. Remote is the default
+// route; --local selects the machine-local gateway and is never an automatic
 // fallback.
 package agents
 
@@ -26,6 +26,8 @@ const usageText = `usage: cc-harness-agents list [--local] [--header|--no-header
        cc-harness-agents serves <model-id>
        cc-harness-agents launch [--replay-to <file>] -- <claude args…>
        cc-harness-agents record-session [--rendered-at <unix-ms>] < statusline.json
+       cc-harness-agents statusline [--json] < statusline.json
+       cc-harness-agents statusline --refresh <remote|local> <provider>
 `
 
 // App is one invocation with every side effect injectable.
@@ -47,6 +49,9 @@ type App struct {
 	DialTimeout    time.Duration
 	// Exec replaces the process. It returns only on failure.
 	Exec func(path string, argv, env []string) error
+	// Spawn starts a detached process and does not wait for it; nil starts
+	// nothing.
+	Spawn func(path string, argv, env []string) error
 }
 
 // Run executes args (without the program name) and returns the exit status.
@@ -94,6 +99,8 @@ func (a *App) run(args []string) error {
 		return a.launch(home, args[1:])
 	case "record-session":
 		return a.recordSession(home, args[1:], a.Stdin)
+	case "statusline":
+		return a.statusline(home, args[1:])
 	case "-h", "--help", "help":
 		io.WriteString(a.Stdout, usageText)
 		return nil

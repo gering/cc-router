@@ -10,8 +10,10 @@ Its `launch` owns `claude`'s command line, resume restore included; the wrapper
 (`share/claude.zsh`) and the POSIX shim (`cmd/claude-shim`) only call it;
 `record-session` writes the records it restores from. The interim resume
 bridge (`cmd/cc-harness-resume`, python3) covers sessions without a record.
-The statusline, quota helpers, `cliproxy-auth` and companion still live in the
-private `gering/dotfiles` repository and move later.
+`statusline` is the segment a user's statusline embeds (route marker plus the
+routed provider's quota from a local cache, refreshed detached); it replaces
+the dotfiles quota helpers. `cliproxy-auth` and the companion still live in
+the private `gering/dotfiles` repository and move later.
 
 - **`make check` is the gate** (gofmt/vet/staticcheck, shellcheck/shfmt,
   `zsh -n`, `go test -race`, `tests/run` — routing, wrapper/shim and resume
@@ -65,7 +67,8 @@ Five pieces, deliberately layered so routing logic exists exactly once:
   non-shell callers get the same routing.
 - **`cliproxy-auth`** — tunnels to the private admin API; runs provider OAuth
   logins on the host that keeps the tokens.
-- **quota helpers** — feed the statusline from the read-only usage API.
+- **statusline segment** (`cc-harness-agents statusline`) — route marker and
+  provider quota from a local cache, refreshed from the read-only usage API.
 - **companion** (Go) — two narrow facades in front of CLIProxyAPI's management
   API: `:8320` read-only usage, `:8321` admin over loopback/SSH only.
   CLIProxyAPI itself is `:8317`. The generic management API is never published.

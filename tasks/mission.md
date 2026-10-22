@@ -16,7 +16,7 @@ repository:
 |---|---|
 | `.scripts/cc-harness-agents` | model table, route probes, environment recipe |
 | `.scripts/cliproxy-auth` | server-side OAuth logins, controlled local fallback |
-| `.claude/cliproxy-quota-source.sh` + `{codex,grok,kimi}-quota.sh` | statusline quota |
+| `.claude/cliproxy-quota-source.sh` + `{codex,grok,kimi}-quota.sh` | statusline quota — moved: `cc-harness-agents statusline` (kimi's local parser waits for a kimi row) |
 | `services/cliproxy-companion/` | usage and admin facades (Go) |
 | `.zsh/functions/claude.zsh` `claude()` | the interactive flag layer — moved: `share/claude.zsh` |
 | `.scripts/cc-harness-resume` | interim resume bridge — moved: `cmd/cc-harness-resume/` |
@@ -26,9 +26,11 @@ repository:
 Test suites that must come along, because they encode the security contract:
 the routing suite (done — it runs against the Go core in `tests/run`, mapped
 in `tests/migration-coverage.md`; the wrapper and resume suites came along with
-the wrapper), 309 auth-CLI tests and 180 quota
-tests, plus the companion's Go suite with `-race`. The last three figures were
-read off `gering/dotfiles` at `f0effff`; re-count them when those pieces move.
+the wrapper; the quota suite's 83 assertion sites are mapped in the same
+file — 78 as Go tests or justified retirements, 5 local-kimi sites pending a
+kimi row), 309 auth-CLI tests, plus the companion's Go suite with
+`-race`. The auth figure was read off `gering/dotfiles` at `f0effff`;
+re-count it when that piece moves.
 
 ## What has to change on the way out
 
@@ -39,7 +41,8 @@ read off `gering/dotfiles` at `f0effff`; re-count them when those pieces move.
       `~/.config/cc-router/config.env`, strict `KEY=VALUE` data, environment >
       file > documented default, secrets refused outright. Keys and defaults
       are in the README; `~/.config/cliproxy/client.env` stays the profile
-      fallback until the quota helpers move.
+      fallback until the dotfiles stop writing it — the quota helpers have
+      moved, but machines still carry their profile only there.
 - [ ] **Decouple secret storage.** The dotfiles use SOPS/age. A stranger will
       not. Define the contract as "these variables must be in the environment"
       and ship one worked example, rather than a dependency.

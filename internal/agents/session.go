@@ -51,14 +51,16 @@ const (
 
 var sessionIDRe = regexp.MustCompile(`^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$`)
 
-// sessionDir is ${XDG_CACHE_HOME:-~/.cache}/cc-router/sessions.
-func sessionDir(env *Env, home string) string {
+// cacheRoot is ${XDG_CACHE_HOME:-~/.cache}/cc-router.
+func cacheRoot(env *Env, home string) string {
 	cache := env.Get("XDG_CACHE_HOME")
 	if !filepath.IsAbs(cache) {
 		cache = filepath.Join(home, ".cache")
 	}
-	return filepath.Join(cache, "cc-router", "sessions")
+	return filepath.Join(cache, "cc-router")
 }
+
+func sessionDir(env *Env, home string) string { return filepath.Join(cacheRoot(env, home), "sessions") }
 
 // validate rejects a record no resume may act on. Every field becomes argv or
 // an environment value of the resumed session, so each is checked against the

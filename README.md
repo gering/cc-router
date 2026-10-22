@@ -19,8 +19,9 @@ credentials, only a revocable per-machine key.
 
 > **Status: early.** The routing core, `cc-harness-agents` (Go), the
 > interactive `claude` wrapper, the executable shim and session resume are
-> here. The statusline, its quota helpers, the login tooling (`cliproxy-auth`)
-> and the companion still live in the author's dotfiles and move next — see
+> here, and so is the statusline segment with the routed provider's quota.
+> The login tooling (`cliproxy-auth`) and the companion still live in the
+> author's dotfiles and move next — see
 > [`tasks/mission.md`](tasks/mission.md) and [`tasks/architecture.md`](tasks/architecture.md).
 
 ## Install
@@ -65,6 +66,8 @@ cc-harness-agents resolve-model <model-id>
 cc-harness-agents serves <model-id>
 cc-harness-agents launch [--replay-to <file>] -- <claude args…>
 cc-harness-agents record-session [--rendered-at <unix-ms>] < statusline.json
+cc-harness-agents statusline [--json] < statusline.json
+cc-harness-agents statusline --refresh <remote|local> <provider>
 ```
 
 `exec sol -- claude` probes the route, sets the routing environment and
@@ -78,7 +81,9 @@ id back to its agent with no network access. `serves` asks the remote route
 whether it still offers a model id. `launch` is what `claude` runs (the wrapper
 and the shim both call it): it parses the flags below, restores a resumed
 session's routing and execs the native launcher. `record-session` reads Claude
-Code's statusline JSON on stdin and writes the session's record.
+Code's statusline JSON on stdin and writes the session's record. `statusline`
+prints the routing segment for your own statusline — see
+[The statusline segment](#the-statusline-segment).
 
 Exit codes: `1` unavailable, `2` usage or unknown agent, `3` not configured,
 `4` (`serves` only) the route answered without the model, `126` the target is
@@ -90,7 +95,7 @@ with `1` and a `claude:` message, as the wrapper always did.
 
 These are external contracts: work-system discovers the helper on `PATH` and
 parses `list`; the wrapper and the shim call `launch`, the statusline
-`record-session`, the resume bridge `resolve-model`.
+`record-session` and `statusline`, the resume bridge `resolve-model`.
 
 **The `claude` flags.** `claude --proxy <agent>` routes through `exec` on the
 remote route, `claude --local <agent>` on the local one, for every row of the
@@ -126,6 +131,60 @@ says which settings file holds it; the file itself is never touched. What
 counts as settled, and which settings files are read:
 [`docs/resume.md`](docs/resume.md#a-foreign-default-model).
 
+### The statusline segment
+
+cc-router ships a **segment**, not a statusline: one short piece you embed in
+your own. `cc-harness-agents statusline` reads Claude Code's statusline JSON on
+stdin and prints, for a routed session, the route marker — `⇄` remote, `⌂`
+local — followed by the provider's quota as *used* percentages:
+
+```
+⇄ 5h 42% 7d 80%
+```
+
+Claude Code fills `.rate_limits` only from Anthropic's own responses, so a
+routed session would otherwise show no quota at all. A native session prints
+nothing; a model no table row serves, or a provider without quota, prints the
+marker alone. `--json` prints the values instead, for a statusline that draws
+its own bars — every field optional, a native session is `{}`:
+
+```json
+{"route":"remote","five_hour":{"used_percentage":42,"reset_at":1786017600},"seven_day":{"used_percentage":80}}
+```
+
+`reset_at` is epoch seconds, absent when the source names no reset. A complete
+example statusline: [`docs/statusline.md`](docs/statusline.md).
+
+**It never waits on the network.** The render reads a local cache only, gives
+up after 500 ms with an empty segment, and exits `0` whatever happens (only an
+unset `HOME` fails, as for every subcommand). A stale
+cache starts a detached refresh (`statusline --refresh <route> <provider>`,
+also runnable by hand to see why a quota is missing — its diagnostics go to its
+stderr, never into the segment). The provider is the table row's `cred`
+column, found from the session's model the way `resolve-model` finds it.
+
+- **remote**: `GET <CC_ROUTER_USAGE_URL>/usage/v1/<cred>` with the same two
+  per-machine credentials as the gateway. Any row's provider is asked, so a
+  new row needs no code. Missing or malformed credentials send nothing.
+- **local**: the provider's own usage endpoint with the newest usable
+  credential from `CC_ROUTER_PROXY_DIR` (`<cred>-*.json`), then the provider
+  CLI's own login — `codex` (`~/.codex/auth.json`) and `xai`
+  (`~/.grok/auth.json`) today. Other providers get no local quota.
+
+| Timing | Value |
+|---|---|
+| a cache younger than this is not refreshed | 300 s |
+| usage data older than this is not shown | 1800 s (and at most 300 s in the future) |
+| after a failed refresh, no retry for | 60 s |
+| after `401`/`403`/`404` (either route), no retry for | 1800 s — CLIProxyAPI bans an address after five failed authentications in 30 minutes, and a rejected token does not heal in a minute |
+| response body cap; connect / total timeout | 1 MiB; 3 s / 8 s |
+
+The cache lives in `${XDG_CACHE_HOME:-~/.cache}/cc-router/quota/`
+(`<cred>-<route>.json`, `.failed`, `.lock`; directory `0700`, files `0600`,
+written by temp file and rename). One refresh runs at a time per provider and
+route; its lock is an `flock` the kernel releases when the holder exits, so a
+crashed refresh never leaves a stale lock.
+
 ## Configuration
 
 Non-secret settings resolve per key: **environment > `~/.config/cc-router/config.env`
@@ -137,6 +196,7 @@ duplicate keys are errors.
 | Key | Default | Meaning |
 |---|---|---|
 | `CC_ROUTER_REMOTE_URL` | — (required for the remote route) | `https://` gateway base URL |
+| `CC_ROUTER_USAGE_URL` | `CC_ROUTER_REMOTE_URL` | `https://` base of the read-only usage API (`/usage/v1/<cred>`) |
 | `CLIPROXY_PROFILE` | from `~/.config/cliproxy/client.env` | selects the secret variables below |
 | `CC_ROUTER_LOCAL_HOST` | `127.0.0.1` | loopback literals only (`127.0.0.1`, `::1`) |
 | `CC_ROUTER_LOCAL_PORT` | `8317` | local CLIProxyAPI |
@@ -213,7 +273,7 @@ normalized quota, and start/poll/cancel for a provider login.
 | `cc-harness-agents` | Owns the model table, the route probes and the environment recipe. Everything else calls it. |
 | `claude()` wrapper | Interactive layer only: flag parsing, conflict checks, resume restore and hint. Its flags come from the table. |
 | `cliproxy-auth` | Tunnels to the private admin API; runs provider OAuth logins on the host that keeps the tokens. |
-| quota helpers | Feed the statusline from the read-only usage API, always without blocking it. |
+| statusline segment | `cc-harness-agents statusline`: route marker and provider quota from a local cache, refreshed in the background from the read-only usage API. |
 | companion | The two narrow facades in front of the management API. |
 
 ## Design rules
