@@ -58,7 +58,7 @@ macOS ships is where a stranger's silent failure would come from.
 
 ## Layout
 
-Implemented (migration steps 1 and 1b):
+Implemented (migration steps 1, 1b and 2):
 
 ```
 cmd/cc-harness-agents/    the binary: CLI entry point and production wiring

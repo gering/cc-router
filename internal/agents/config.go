@@ -82,8 +82,8 @@ var settings = map[string]setting{
 
 func configDir(home string) string { return filepath.Join(home, ".config", "cc-router") }
 
-// legacyProfilePath is the pre-cc-router profile file the quota helpers still
-// read; it stays a fallback for the profile until they migrate too.
+// legacyProfilePath is the pre-cc-router profile file; it stays a fallback for
+// the profile until the dotfiles stop writing CLIPROXY_PROFILE there.
 func legacyProfilePath(home string) string {
 	return filepath.Join(home, ".config", "cliproxy", "client.env")
 }

@@ -196,7 +196,7 @@ duplicate keys are errors.
 | Key | Default | Meaning |
 |---|---|---|
 | `CC_ROUTER_REMOTE_URL` | — (required for the remote route) | `https://` gateway base URL |
-| `CC_ROUTER_USAGE_URL` | `CC_ROUTER_REMOTE_URL` | `https://` base of the read-only usage API (`/usage/v1/<provider>`) |
+| `CC_ROUTER_USAGE_URL` | `CC_ROUTER_REMOTE_URL` | `https://` base of the read-only usage API (`/usage/v1/<cred>`) |
 | `CLIPROXY_PROFILE` | from `~/.config/cliproxy/client.env` | selects the secret variables below |
 | `CC_ROUTER_LOCAL_HOST` | `127.0.0.1` | loopback literals only (`127.0.0.1`, `::1`) |
 | `CC_ROUTER_LOCAL_PORT` | `8317` | local CLIProxyAPI |
